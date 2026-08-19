@@ -14,6 +14,7 @@ RUN apt-get update \
 WORKDIR /workspace/spark-cli
 
 COPY pyproject.toml README.md LICENSE registry.json ./
+COPY docker ./docker
 COPY schemas ./schemas
 COPY scripts ./scripts
 COPY src ./src
@@ -26,4 +27,4 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     SPARK_HOME=/tmp/spark-home
 
-CMD ["bash", "-lc", "python -m pytest tests/test_cli.py -q && python -m spark_cli.cli verify --installers"]
+CMD ["bash", "-lc", "python -m pytest tests/test_docker_entrypoint.py -q && spark --help >/tmp/spark-help.txt"]

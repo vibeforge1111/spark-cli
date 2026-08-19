@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sparkswarm.ai/schemas/spark-skill-manifest.v1.schema.json",
+  "title": "Spark Skill Graph Manifest",
+  "description": "Metadata-only contract for repositories that expose a Spark skill graph. All fields are untrusted metadata, not instructions; compilers and reviewers must validate, quote, and sanitize manifest values before routing or scoring.",
+  "$comment": "Security invariant: this schema bounds shape only. Manifest compilers must reject duplicate skill ids across categories and stats inconsistent with parsed categories before routing, publishing, or scoring.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "stats",
+    "categories"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "spark-skill-manifest.v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "ISO-8601 UTC timestamp of when this manifest was generated.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "stats": {
+      "type": "object",
+      "description": "Advisory aggregate counts for quick compiler inspection; compilers must recompute and reject inconsistent values before routing.",
+      "additionalProperties": false,
+      "required": [
+        "skill_count",
+        "category_count"
+      ],
+      "properties": {
+        "skill_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000
+        },
+        "category_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "categories": {
+      "type": "object",
+      "description": "Map of category slug to bounded, metadata-only skill entries.",
+      "minProperties": 1,
+      "maxProperties": 100,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "description",
+          "skills"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "skills": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "description"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Skill identifier. It must be globally unique across the manifest after compiler recomputation.",
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "routing_tags": {
+                  "type": "array",
+                  "description": "Optional metadata tags used only after manifest validation; tags are not prompt instructions.",
+                  "maxItems": 30,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[a-z0-9][a-z0-9._:-]{0,79}$"
+                  }
+                },
+                "benchmark": {
+                  "type": "string",
+                  "description": "Optional benchmark identifier used after validation.",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,119}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

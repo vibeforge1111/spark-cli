@@ -289,8 +289,7 @@ no backend.
 Spark is freemium. A single **Spark Pro** subscription unlocks all paid
 modules. This section covers how the installer handles paid modules,
 license verification, and graceful degradation. Strategic context lives
-in [spark-strategy-v1.md](./spark-strategy-v1.md); this section covers the
-mechanics.
+in a separate strategy document; this section covers the mechanics.
 
 ### Manifest `[license]` block
 

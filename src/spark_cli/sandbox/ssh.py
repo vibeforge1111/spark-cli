@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import hashlib
+import ipaddress
 import os
 import re
+import secrets
 import shlex
 import shutil
 import stat
@@ -37,6 +39,12 @@ SSH_SUBPROCESS_ENV_ALLOWLIST = {
     "TMP",
     "USERPROFILE",
     "WINDIR",
+}
+SSH_LOCAL_HOST_ALIASES = {
+    "localhost",
+    "localhost.localdomain",
+    "ip6-localhost",
+    "ip6-loopback",
 }
 SSH_SMOKE_PROBE = """#!/bin/sh
 set -eu
@@ -130,16 +138,101 @@ def ssh_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
     }
 
 
+def _parse_ipv4_number(value: str) -> int | None:
+    try:
+        if value.lower().startswith("0x"):
+            return int(value[2:], 16)
+        if len(value) > 1 and value.startswith("0"):
+            return int(value[1:] or "0", 8)
+        return int(value, 10)
+    except ValueError:
+        return None
+
+
+def _legacy_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
+    if not host or not all(char in "0123456789abcdefABCDEFxX." for char in host):
+        return None
+    parts = host.split(".")
+    if len(parts) > 4 or any(part == "" for part in parts):
+        return None
+    numbers = [_parse_ipv4_number(part) for part in parts]
+    if any(number is None for number in numbers):
+        return None
+    octets: list[int]
+    if len(numbers) == 1:
+        value = int(numbers[0])
+        if value > 0xFFFFFFFF:
+            return None
+        octets = [
+            (value >> 24) & 0xFF,
+            (value >> 16) & 0xFF,
+            (value >> 8) & 0xFF,
+            value & 0xFF,
+        ]
+    elif len(numbers) == 2:
+        first, rest = (int(number) for number in numbers)
+        if first > 0xFF or rest > 0xFFFFFF:
+            return None
+        octets = [first, (rest >> 16) & 0xFF, (rest >> 8) & 0xFF, rest & 0xFF]
+    elif len(numbers) == 3:
+        first, second, rest = (int(number) for number in numbers)
+        if first > 0xFF or second > 0xFF or rest > 0xFFFF:
+            return None
+        octets = [first, second, (rest >> 8) & 0xFF, rest & 0xFF]
+    else:
+        if any(int(number) > 0xFF for number in numbers):
+            return None
+        octets = [int(number) for number in numbers]
+    return ipaddress.IPv4Address(bytes(octets))
+
+
+def _ssh_host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = _legacy_ipv4_address(host)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
+
+
+def _is_metadata_host(value: str) -> bool:
+    if value == "metadata.google.internal":
+        return True
+    ip = _ssh_host_ip(value)
+    return ip == ipaddress.ip_address("169.254.169.254") or ip == ipaddress.ip_address("fd00:ec2::254")
+
+
+def _is_valid_dns_hostname(value: str) -> bool:
+    if len(value) > 253:
+        return False
+    for label in value.split("."):
+        if not label or len(label) > 63:
+            return False
+        if label.startswith("-") or label.endswith("-"):
+            return False
+        if not re.fullmatch(r"[a-z0-9-]+", label):
+            return False
+    return True
+
+
 def validate_ssh_host(host: str) -> str:
-    value = str(host or "").strip().lower()
+    value = str(host or "").strip().lower().rstrip(".")
     if not value:
         raise ValueError("SSH host is required.")
     if "://" in value or "/" in value or "\\" in value or "@" in value:
         raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
-    if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
+    if not SSH_HOST_PATTERN.fullmatch(value):
         raise ValueError("SSH host contains unsupported characters.")
-    if value in {"169.254.169.254", "metadata.google.internal"}:
+    address = _ssh_host_ip(value)
+    if address is None and (":" in value or not _is_valid_dns_hostname(value)):
+        raise ValueError("SSH host must be a valid hostname or IP address.")
+    if _is_metadata_host(value):
         raise ValueError("SSH host must not point at a cloud metadata service.")
+    if value in SSH_LOCAL_HOST_ALIASES or (address is not None and address.is_loopback):
+        raise ValueError("SSH sandbox host must not point back to this machine.")
+    if address is not None and address.is_link_local:
+        raise ValueError("SSH sandbox host must not use a link-local address.")
     return value
 
 
@@ -192,11 +285,12 @@ def resolve_identity_file(path: str | Path) -> tuple[Path, list[str]]:
 
 
 def _target_from_dict(name: str, data: dict[str, Any]) -> SshTarget:
+    raw_port = data.get("port")
     return SshTarget(
         name=validate_target_name(str(data.get("name") or name)),
         host=validate_ssh_host(str(data.get("host") or "")),
         user=validate_ssh_user(str(data.get("user") or "")),
-        port=validate_ssh_port(int(data.get("port") or 22)),
+        port=validate_ssh_port(22 if raw_port is None else raw_port),
         identity_file=str(data.get("identity_file") or ""),
         remote_workspace=validate_remote_workspace(str(data.get("remote_workspace") or "~/spark-live")),
         host_key_status=str(data.get("host_key_status") or "unverified"),
@@ -210,7 +304,10 @@ def load_ssh_targets(*, home: Path | None = None) -> dict[str, SshTarget]:
     path = ssh_targets_path(home)
     if not path.exists():
         return {}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"SSH target store is corrupt or not valid JSON: {error}") from error
     if not isinstance(payload, dict) or payload.get("schema_version") != SSH_TARGETS_SCHEMA_VERSION:
         raise ValueError("Unsupported SSH target store schema.")
     targets = payload.get("targets")
@@ -407,11 +504,18 @@ def trust_ssh_target_host_key(
             if raw_line.strip() and not raw_line.startswith(f"{alias} "):
                 lines.append(raw_line)
     lines.append(scan.known_hosts_line)
-    known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{known_hosts.name}.", suffix=".tmp", dir=str(known_hosts.parent))
     try:
-        known_hosts.chmod(0o600)
-    except OSError:
-        pass
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+        os.replace(tmp_name, known_hosts)
+        try:
+            known_hosts.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
     trusted = SshTarget(
         **{
             **target.to_dict(),
@@ -546,15 +650,35 @@ def ssh_smoke_probe_hash(probe_content: str = SSH_SMOKE_PROBE) -> str:
     return hashlib.sha256(probe_content.encode("utf-8")).hexdigest()
 
 
-def ssh_smoke_remote_path(target: SshTarget, probe_hash: str) -> str:
+def ssh_smoke_remote_path(target: SshTarget, probe_hash: str, *, nonce: str | None = None) -> str:
     safe_name = validate_target_name(target.name)
     if not re.fullmatch(r"[0-9a-f]{64}", probe_hash):
         raise ValueError("SSH smoke probe hash must be a SHA-256 hex digest.")
-    return f"/tmp/spark-sandbox-smoke-{safe_name}-{probe_hash[:12]}.sh"
+    safe_nonce = nonce or secrets.token_hex(16)
+    if not re.fullmatch(r"[0-9a-f]{32}", safe_nonce):
+        raise ValueError("SSH smoke nonce must be a 128-bit lowercase hex token.")
+    return f"/tmp/spark-sandbox-smoke-{safe_name}-{safe_nonce}/probe.sh"
+
+
+def ssh_smoke_remote_dir(target: SshTarget, remote_path: str) -> str:
+    safe_name = validate_target_name(target.name)
+    pattern = rf"(/tmp/spark-sandbox-smoke-{re.escape(safe_name)}-[0-9a-f]{{32}})/probe\.sh"
+    match = re.fullmatch(pattern, remote_path)
+    if match is None:
+        raise ValueError("SSH smoke remote path is outside its private probe directory.")
+    return match.group(1)
 
 
 def ssh_smoke_upload_argv(target: SshTarget, remote_path: str, *, home: Path | None = None) -> list[str]:
-    return [*build_ssh_base_argv(target, home=home), f"umask 077; cat > {shlex.quote(remote_path)}"]
+    remote_dir = ssh_smoke_remote_dir(target, remote_path)
+    command = (
+        f"dir={shlex.quote(remote_dir)}; file={shlex.quote(remote_path)}; umask 077; "
+        "if ! mkdir -m 700 -- \"$dir\"; then "
+        "printf 'SPARK_SSH_REMOTE_DIR_EXISTS %s\\n' \"$dir\"; exit 73; fi; "
+        "cleanup_upload(){ rm -rf -- \"$dir\"; }; trap cleanup_upload EXIT HUP INT TERM; "
+        "cat > \"$file\" || exit $?; trap - EXIT HUP INT TERM"
+    )
+    return [*build_ssh_base_argv(target, home=home), command]
 
 
 def ssh_smoke_execute_argv(
@@ -565,15 +689,17 @@ def ssh_smoke_execute_argv(
     keep_debug_files: bool = False,
     home: Path | None = None,
 ) -> list[str]:
+    remote_dir = ssh_smoke_remote_dir(target, remote_path)
     quoted_path = shlex.quote(remote_path)
+    quoted_dir = shlex.quote(remote_dir)
     quoted_hash = shlex.quote(probe_hash)
     cleanup = (
         "printf 'SPARK_SSH_DEBUG_FILE=%s\\n' \"$file\""
         if keep_debug_files
-        else "cleanup(){ rm -f \"$file\"; }; trap cleanup EXIT"
+        else "cleanup(){ rm -rf -- \"$dir\"; }; trap cleanup EXIT"
     )
     command = (
-        f"file={quoted_path}; expected={quoted_hash}; {cleanup}; "
+        f"dir={quoted_dir}; file={quoted_path}; expected={quoted_hash}; {cleanup}; "
         "actual=$(sha256sum \"$file\" | awk '{print $1}'); "
         "if [ \"$actual\" != \"$expected\" ]; then "
         "printf 'SPARK_SSH_HASH_MISMATCH expected=%s actual=%s\\n' \"$expected\" \"$actual\"; "

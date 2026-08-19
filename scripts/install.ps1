@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "264baaaf0cbb3e1790b20c425b391d2919505a21",
+    [string]$Ref = "spark-cli-public-installer-2026-08-08-r30-v3",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -13,10 +13,16 @@ param(
     [string]$OpenAIApiKey = "",
     [string]$AnthropicApiKey = "",
     [string]$MiniMaxApiKey = "",
+    [string]$KimiApiKey = "",
+    [string]$OpenRouterApiKey = "",
+    [string]$HuggingFaceApiKey = "",
     [switch]$NonInteractiveSetup,
+    [switch]$InteractiveSetup,
     [switch]$SetupSkipInstallCommands,
     [switch]$SetupSkipRuntimeCheck,
+    [switch]$SetupSkipTelegramTokenCheck,
     [switch]$ManagedNode,
+    [switch]$SkipUserPath,
     [string[]]$SetupArg = @(),
     [string]$LocalRegistry = "",
     [switch]$SkipSetup,
@@ -30,7 +36,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-05-17-r13"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-08-08-r30-v3"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -54,13 +60,35 @@ function Apply-InstallDefaults {
         $script:NoAutostart = $true
         $Script:AutostartAutoDisabled = $true
     }
-    if ($Yes -or [Console]::IsInputRedirected) {
+    if (($Yes -or [Console]::IsInputRedirected) -and -not $InteractiveSetup) {
         $script:NonInteractiveSetup = $true
     }
 }
 
 function Test-BundleIncludesVoice {
     return $Bundle -like "*voice*"
+}
+
+function Test-SetupApprovalPreflight {
+    if (-not $NonInteractiveSetup) {
+        return
+    }
+    $mutatesIdentityAccess = [bool]$BotToken -or [bool]$AdminTelegramIds
+    foreach ($arg in $SetupArg) {
+        $lowered = "$arg".ToLowerInvariant()
+        if (
+            $lowered -eq "--bot-token" -or
+            $lowered.StartsWith("--bot-token=") -or
+            $lowered -eq "--admin-telegram-ids" -or
+            $lowered.StartsWith("--admin-telegram-ids=")
+        ) {
+            $mutatesIdentityAccess = $true
+            break
+        }
+    }
+    if ($mutatesIdentityAccess) {
+        throw "Refusing non-interactive spark setup because Telegram identity/access configuration requires explicit interactive approval. Rerun without -Yes/-NonInteractiveSetup, or omit bot/admin setup flags and run spark setup interactively after install."
+    }
 }
 
 function Format-AutostartPlan {
@@ -101,8 +129,12 @@ function Require-Command {
 
 function Test-PythonCompatible {
     param([string]$PythonExe)
-    & $PythonExe -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)' 2>$null | Out-Null
-    return $LASTEXITCODE -eq 0
+    try {
+        & $PythonExe -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)' 2>$null | Out-Null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
 }
 
 function Find-SystemPython {
@@ -119,16 +151,22 @@ function Find-SystemPython {
 function Find-Uv {
     $cmd = Get-Command uv -ErrorAction SilentlyContinue
     if ($cmd) {
-        $Script:UvExe = $cmd.Source
-        return $true
+        $uvDir = Split-Path -Parent $cmd.Source
+        if ((Test-Path -LiteralPath (Join-Path $uvDir "uvx.exe")) -or (Get-Command uvx -ErrorAction SilentlyContinue)) {
+            $Script:UvExe = $cmd.Source
+            return $true
+        }
     }
     foreach ($candidate in @(
         (Join-Path $HOME ".local\bin\uv.exe"),
         (Join-Path $HOME ".cargo\bin\uv.exe")
     )) {
         if (Test-Path -LiteralPath $candidate) {
-            $Script:UvExe = $candidate
-            return $true
+            $uvDir = Split-Path -Parent $candidate
+            if ((Test-Path -LiteralPath (Join-Path $uvDir "uvx.exe")) -or (Get-Command uvx -ErrorAction SilentlyContinue)) {
+                $Script:UvExe = $candidate
+                return $true
+            }
         }
     }
     return $false
@@ -143,6 +181,20 @@ function Get-UvPlatform {
         return "x86_64-pc-windows-msvc"
     }
     throw "Unsupported Windows architecture for uv: $arch"
+}
+
+function Get-NodePlatform {
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    }
+    if ($arch -eq "ARM64") {
+        return "win-arm64"
+    }
+    if ($arch -eq "AMD64" -or $arch -eq "x86_64" -or $arch -eq "X64") {
+        return "win-x64"
+    }
+    throw "Unsupported Windows architecture for Node: $arch"
 }
 
 function Get-UvAssetSha256 {
@@ -167,10 +219,16 @@ function Install-Uv {
     $archive = Join-Path $toolsDir $asset
     $extractDir = Join-Path $toolsDir "uv-extract-$UvVersion-$uvPlatform"
     $uvExe = Join-Path $uvDir "uv.exe"
-    if (Test-Path -LiteralPath $uvExe) {
+    $uvxExe = Join-Path $uvDir "uvx.exe"
+    if ((Test-Path -LiteralPath $uvExe) -and (Test-Path -LiteralPath $uvxExe)) {
         $Script:UvExe = $uvExe
         Write-SparkLog "Using managed uv at $Script:UvExe"
         return
+    }
+    if (Test-Path -LiteralPath $uvExe) {
+        Write-SparkLog "Refreshing managed uv because uvx.exe is missing"
+        Remove-Item -LiteralPath $uvExe -Force
+        Remove-Item -LiteralPath $uvxExe -Force -ErrorAction SilentlyContinue
     }
     New-Item -ItemType Directory -Force -Path $toolsDir, $uvDir | Out-Null
     Write-SparkLog "Downloading pinned uv $UvVersion for $uvPlatform"
@@ -196,6 +254,24 @@ function Install-Uv {
     Remove-Item -LiteralPath $extractDir -Recurse -Force
     $Script:UvExe = $uvExe
     Write-SparkLog "Using managed uv at $Script:UvExe"
+}
+
+function Ensure-UvxForBrowserUse {
+    Install-Uv
+    $uvDir = Split-Path -Parent $Script:UvExe
+    $uvxExe = Join-Path $uvDir "uvx.exe"
+    if (Test-Path -LiteralPath $uvxExe) {
+        return $uvDir
+    }
+    $uvxOnPath = Get-Command uvx -ErrorAction SilentlyContinue
+    if ($uvxOnPath) {
+        return (Split-Path -Parent $uvxOnPath.Source)
+    }
+    $managedRoot = Join-Path $Script:SparkPrefix "tools"
+    if ($Script:UvExe -and $Script:UvExe.StartsWith($managedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Managed uv at $Script:UvExe did not provide a paired uvx.exe, which browser-use needs to install Chromium. Remove $uvDir and re-run install.ps1 to refresh the bundled uv."
+    }
+    throw "Found uv at $Script:UvExe but no paired uvx.exe, and uvx is not on PATH. browser-use needs uvx to install Chromium. Install uv with its bundled uvx, or remove the existing uv so install.ps1 can fetch the bundled copy."
 }
 
 function Ensure-PythonRuntime {
@@ -224,6 +300,43 @@ function Test-ExistingInstall {
     )
 }
 
+function Test-LongPathSupport {
+    # browser-use pulls litellm, whose deepest packaged file sits ~205 chars below the install
+    # prefix. With LongPathsEnabled=0 (the Windows default) that crosses the legacy 260-char
+    # MAX_PATH and aborts pip mid-install. Enable long paths when elevated, otherwise stop early
+    # with a clear fix instead of a confusing deep-in-pip OSError.
+    $suffix = 205
+    $worstCase = $Script:SparkPrefix.Length + $suffix
+    if ($worstCase -le 259) { return }
+    $enabled = $false
+    try {
+        $entry = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -ErrorAction Stop
+        $enabled = ([int]$entry.LongPathsEnabled -eq 1)
+    } catch { $enabled = $false }
+    if ($enabled) {
+        Write-SparkLog "Windows long path support is enabled; long install prefix is fine."
+        return
+    }
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+    if ($isAdmin) {
+        try {
+            New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1 -PropertyType DWORD -Force | Out-Null
+            Write-SparkLog "Enabled Windows long path support (LongPathsEnabled=1) so the long install prefix will not exceed the 260-character path limit."
+            return
+        } catch {
+            Write-SparkLog "Could not enable long path support automatically: $($_.Exception.Message)"
+        }
+    }
+    throw @"
+Install prefix is too long for this machine's Windows path settings.
+  Prefix: $Script:SparkPrefix ($($Script:SparkPrefix.Length) chars)
+With browser-use's dependencies this can exceed the legacy 260-character path limit and abort the install. Fix either one, then re-run install.ps1:
+  1) Enable long paths once, in an Administrator PowerShell:
+     New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force
+  2) Or re-run with a shorter prefix, for example: -Prefix C:\spark
+"@
+}
+
 function Invoke-Preflight {
     Write-SparkLog "Preflight checks"
     if (Find-SystemPython) {
@@ -234,6 +347,7 @@ function Invoke-Preflight {
     }
     Require-Command git
     Write-SparkLog "Install prefix: $Script:SparkPrefix"
+    Test-LongPathSupport
     Write-SparkLog "Spark CLI source: $Source"
     Write-SparkLog "Spark CLI ref: $Ref"
     Write-SparkLog "Node version: $NodeVersion"
@@ -285,21 +399,33 @@ function Show-DryRunPlan {
     Write-Host "Details:"
     Write-Host "  Dry-run safety:     no network and no writes in -DryRun mode"
     Write-Host "  Prefix:              $Script:SparkPrefix"
-    Write-Host "  Node platform:       win-x64"
+    Write-Host "  Node platform:       $(Get-NodePlatform)"
     Write-Host "  Node version:        $NodeVersion"
     Write-Host "  Python version:      $PythonVersion"
     Write-Host "  Python source:       existing Python >=3.11,<3.14 or pinned uv $UvVersion if needed"
     Write-Host "  Managed Node forced: $ManagedNode"
     Write-Host "  CLI source:          $Source"
-    Write-Host "  CLI release:         $SparkCliReleaseName"
-    Write-Host "  CLI commit:          $Ref"
+    $sourceIsLocal = Test-Path -LiteralPath $Source
+    if ($sourceIsLocal) {
+        $localHead = Get-GitHead -Path $Source
+        $localReleaseLabel = if ($localHead) { "local working tree at $localHead" } else { "local working tree (no git HEAD)" }
+        Write-Host "  CLI release:         $localReleaseLabel"
+        Write-Host "  CLI commit:          $(if ($localHead) { $localHead } else { 'local working tree' })"
+    } else {
+        Write-Host "  CLI release:         $SparkCliReleaseName"
+        Write-Host "  CLI commit:          $Ref"
+    }
     Write-Host "  Bundle:              $Bundle"
     Write-Host "  Voice included:      $voiceIncluded"
     Write-Host "  Run mode:            $(Format-InstallerRunMode)"
     Write-Host "  Setup enabled:       $setupEnabled"
+    if ($LocalRegistry) {
+        Write-Host "  Local registry:      $LocalRegistry replaces registry.json at setup"
+    }
     $providerPlan = if ($LlmProvider) { "$LlmProvider for Agent and Mission" } else { "choose during spark setup" }
     Write-Host "  Default provider:    $providerPlan"
-    Write-Host "  User PATH edit:      yes"
+    $userPathEdit = if ($SkipUserPath) { "no" } else { "yes" }
+    Write-Host "  User PATH edit:      $userPathEdit"
     Write-Host "  Autostart:           $autostartEnabled"
     Write-Host "  Existing mode:       $existingMode"
     Write-Host "  Existing install:    $existing"
@@ -337,6 +463,7 @@ function Show-DryRunPlan {
         if ($NonInteractiveSetup) { $setupPreviewArgs += "--non-interactive" }
         if ($SetupSkipInstallCommands) { $setupPreviewArgs += "--skip-install-commands" }
         if ($SetupSkipRuntimeCheck) { $setupPreviewArgs += "--skip-runtime-check" }
+        if ($SetupSkipTelegramTokenCheck) { $setupPreviewArgs += "--skip-telegram-token-check" }
         if ($BotToken) { $setupPreviewArgs += @("--bot-token", "<redacted>") }
         if ($AdminTelegramIds) { $setupPreviewArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
         if ($LlmProvider) { $setupPreviewArgs += @("--llm-provider", $LlmProvider) }
@@ -344,6 +471,9 @@ function Show-DryRunPlan {
         if ($OpenAIApiKey) { $setupPreviewArgs += @("--openai-api-key", "<redacted>") }
         if ($AnthropicApiKey) { $setupPreviewArgs += @("--anthropic-api-key", "<redacted>") }
         if ($MiniMaxApiKey) { $setupPreviewArgs += @("--minimax-api-key", "<redacted>") }
+        if ($KimiApiKey) { $setupPreviewArgs += @("--kimi-api-key", "<redacted>") }
+        if ($OpenRouterApiKey) { $setupPreviewArgs += @("--openrouter-api-key", "<redacted>") }
+        if ($HuggingFaceApiKey) { $setupPreviewArgs += @("--huggingface-api-key", "<redacted>") }
         $setupPreviewArgs += $SetupArg
         $setupPreview = ($setupPreviewArgs | ForEach-Object { Format-SetupPreviewArg $_ }) -join " "
         Write-Host "  `"$Script:SparkPrefix\bin\spark.cmd`" setup `"$Bundle`" $setupPreview"
@@ -433,8 +563,8 @@ function Test-InstallSettings {
     if ($UvVersion -notmatch '^\d+\.\d+\.\d+$') {
         throw "Unsafe uv version value: $UvVersion"
     }
-    if (-not $RefWasProvided -and $Ref -notmatch '^[0-9a-f]{40}$') {
-        throw "Default Spark CLI ref must be an immutable 40-character commit SHA: $Ref"
+    if (-not $RefWasProvided -and $Ref -notmatch '^([0-9a-f]{40}|spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(-v\d+)?)$') {
+        throw "Default Spark CLI ref must be a 40-character commit SHA or Spark public release tag: $Ref"
     }
     $normalizedSource = $Source.TrimEnd("/")
     if ($normalizedSource.EndsWith(".git")) {
@@ -448,6 +578,12 @@ function Test-InstallSettings {
     }
     if ($LocalRegistry -and -not $AllowDevSource) {
         throw "Refusing local registry override without -AllowDevSource: $LocalRegistry"
+    }
+    if ($InteractiveSetup -and $NonInteractiveSetup) {
+        throw "Refusing -InteractiveSetup with -NonInteractiveSetup"
+    }
+    if ($InteractiveSetup -and [Console]::IsInputRedirected) {
+        throw "Refusing -InteractiveSetup when standard input is redirected"
     }
 }
 
@@ -479,7 +615,8 @@ function Install-Node {
     }
 
     $toolsDir = Join-Path $Script:SparkPrefix "tools"
-    $nodeDir = Join-Path $toolsDir "node-v$NodeVersion-win-x64"
+    $nodePlatform = Get-NodePlatform
+    $nodeDir = Join-Path $toolsDir "node-v$NodeVersion-$nodePlatform"
     $nodeExe = Join-Path $nodeDir "node.exe"
     if (Test-Path $nodeExe) {
         Write-SparkLog "Node $NodeVersion already installed at $nodeDir"
@@ -487,9 +624,9 @@ function Install-Node {
     }
 
     New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
-    $archive = Join-Path $toolsDir "node-v$NodeVersion-win-x64.zip"
+    $archive = Join-Path $toolsDir "node-v$NodeVersion-$nodePlatform.zip"
     $shasums = Join-Path $toolsDir "node-v$NodeVersion-SHASUMS256.txt"
-    $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip"
+    $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-$nodePlatform.zip"
     $shasumsUrl = "https://nodejs.org/dist/v$NodeVersion/SHASUMS256.txt"
     Write-SparkLog "Downloading Node $NodeVersion"
     Invoke-WebRequest -Uri $url -OutFile $archive
@@ -537,6 +674,42 @@ function Invoke-GitQuiet {
     }
 }
 
+function Get-GitHead {
+    param([string]$Path)
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        return ""
+    }
+    try {
+        $head = (& git -C $Path rev-parse HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $head) {
+            return ([string]$head).Trim()
+        }
+    } catch {
+        return ""
+    }
+    return ""
+}
+
+function Write-CliSourceProvenance {
+    param([string]$Target, [string]$SourcePath)
+    $stateDir = Join-Path $Script:SparkPrefix "state"
+    New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+    $sourceHead = Get-GitHead -Path $SourcePath
+    if (-not $sourceHead) {
+        $sourceHead = Get-GitHead -Path $Target
+    }
+    $payload = [ordered]@{
+        schema_version = "spark.cli.install_source.v1"
+        component = "spark-cli"
+        source = $Source
+        ref = $Ref
+        source_head = $sourceHead
+        installed_path = $Target
+        local_source = [bool](Test-Path $Source)
+    }
+    $payload | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stateDir "spark-cli-install-source.json") -Encoding UTF8
+}
+
 function Checkout-CliRef {
     param([string]$Target)
     if ((Invoke-GitQuiet @("-C", $Target, "checkout", $Ref)) -eq 0) {
@@ -578,7 +751,9 @@ function Checkout-Cli {
     New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
     if (Test-Path $Source) {
         Write-SparkLog "Copying spark-cli from local path $Source"
-        Copy-DirectoryContents -From (Resolve-FullPath $Source) -To $target
+        $resolvedSource = Resolve-FullPath $Source
+        Copy-DirectoryContents -From $resolvedSource -To $target
+        Write-CliSourceProvenance -Target $target -SourcePath $resolvedSource
         return $target
     }
 
@@ -597,18 +772,37 @@ function Checkout-Cli {
         }
     }
     Checkout-CliRef -Target $target
+    Write-CliSourceProvenance -Target $target -SourcePath $target
     return $target
 }
 
 function Install-CliVenv {
     param([string]$CliDir)
     $venvDir = Join-Path $Script:SparkPrefix "tools\spark-cli-venv"
+    $uvDir = Ensure-UvxForBrowserUse
     Write-SparkLog "Creating Spark CLI virtualenv"
     & $Script:PythonExe -m venv $venvDir
     Write-SparkLog "Upgrading pip in Spark CLI virtualenv"
     & (Join-Path $venvDir "Scripts\python.exe") -m pip install --upgrade pip | Out-Null
-    Write-SparkLog "Installing Spark CLI package"
-    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e $CliDir | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade pip in Spark CLI virtualenv." }
+    Write-SparkLog "Installing Spark CLI package with browser-use support"
+    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e "$CliDir[browser-use]" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install Spark CLI package with browser-use support." }
+    Write-SparkLog "Installing browser-use Chromium dependency"
+    $oldPath = $env:PATH
+    $oldPythonIoEncoding = $env:PYTHONIOENCODING
+    $oldPythonUtf8 = $env:PYTHONUTF8
+    try {
+        $env:PATH = "$(Join-Path $venvDir "Scripts");$uvDir;$env:PATH"
+        $env:PYTHONIOENCODING = "utf-8"
+        $env:PYTHONUTF8 = "1"
+        & (Join-Path $venvDir "Scripts\browser-use.exe") install | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install browser-use Chromium dependency." }
+    } finally {
+        $env:PATH = $oldPath
+        $env:PYTHONIOENCODING = $oldPythonIoEncoding
+        $env:PYTHONUTF8 = $oldPythonUtf8
+    }
     return $venvDir
 }
 
@@ -626,6 +820,7 @@ function Write-Wrapper {
     $contents = @"
 @echo off
 set "SPARK_HOME=$Script:SparkPrefix"
+set "SPARK_CLI_SOURCE_ROOT=$Script:SparkPrefix\tools\spark-cli"
 set "PATH=$NodeDir;%PATH%"
 "$pythonExe" -m spark_cli.cli %*
 "@
@@ -636,6 +831,11 @@ set "PATH=$NodeDir;%PATH%"
 function Add-SparkBinToUserPath {
     $binDir = Join-Path $Script:SparkPrefix "bin"
     $tempRoot = Resolve-FullPath $env:TEMP
+    if ($SkipUserPath) {
+        $env:PATH = "$binDir;$env:PATH"
+        Write-SparkLog "Skipping persistent PATH update by request"
+        return
+    }
     if ($Script:SparkPrefix.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         $env:PATH = "$binDir;$env:PATH"
         Write-SparkLog "Skipping persistent PATH update for temporary install prefix $Script:SparkPrefix"
@@ -690,9 +890,11 @@ function Run-Setup {
     }
     $sparkCmd = Join-Path $Script:SparkPrefix "bin\spark.cmd"
     $secretFiles = [System.Collections.Generic.List[string]]::new()
+    $secretDir = Join-Path $Script:SparkPrefix "state\setup-secret-inputs"
+    New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
     function New-SetupSecretRef {
         param([string]$Value)
-        $secretFile = [System.IO.Path]::GetTempFileName()
+        $secretFile = Join-Path $secretDir ([System.IO.Path]::GetRandomFileName())
         [System.IO.File]::WriteAllText($secretFile, $Value, [System.Text.UTF8Encoding]::new($false))
         [void]$secretFiles.Add($secretFile)
         return "@file:$secretFile"
@@ -701,6 +903,7 @@ function Run-Setup {
     if ($NonInteractiveSetup) { $setupArgs += "--non-interactive" }
     if ($SetupSkipInstallCommands) { $setupArgs += "--skip-install-commands" }
     if ($SetupSkipRuntimeCheck) { $setupArgs += "--skip-runtime-check" }
+    if ($SetupSkipTelegramTokenCheck) { $setupArgs += "--skip-telegram-token-check" }
     if ($BotToken) { $setupArgs += @("--bot-token", (New-SetupSecretRef $BotToken)) }
     if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
     if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }
@@ -708,17 +911,32 @@ function Run-Setup {
     if ($OpenAIApiKey) { $setupArgs += @("--openai-api-key", (New-SetupSecretRef $OpenAIApiKey)) }
     if ($AnthropicApiKey) { $setupArgs += @("--anthropic-api-key", (New-SetupSecretRef $AnthropicApiKey)) }
     if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }
+    if ($KimiApiKey) { $setupArgs += @("--kimi-api-key", (New-SetupSecretRef $KimiApiKey)) }
+    if ($OpenRouterApiKey) { $setupArgs += @("--openrouter-api-key", (New-SetupSecretRef $OpenRouterApiKey)) }
+    if ($HuggingFaceApiKey) { $setupArgs += @("--huggingface-api-key", (New-SetupSecretRef $HuggingFaceApiKey)) }
     $setupArgs += $SetupArg
     Write-SparkLog "Running spark setup $Bundle"
+    $previousSetupOptional = $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE
     try {
+        if ($UpgradeExisting) {
+            $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = "1"
+        }
         $setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }
         & $sparkCmd setup $Bundle @setupStartArgs @setupArgs
         if ($LASTEXITCODE -ne 0) {
             throw "spark setup failed with exit code $LASTEXITCODE"
         }
     } finally {
+        if ($null -eq $previousSetupOptional) {
+            Remove-Item Env:\SPARK_SETUP_OPTIONAL_ON_UPGRADE -ErrorAction SilentlyContinue
+        } else {
+            $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = $previousSetupOptional
+        }
         foreach ($secretFile in $secretFiles) {
             Remove-Item -LiteralPath $secretFile -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $secretDir) {
+            Remove-Item -LiteralPath $secretDir -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -730,6 +948,49 @@ function Run-Autostart {
     Write-SparkLog "Spark startup was handled by setup"
 }
 
+function Test-SetupRefreshPaused {
+    $pendingSetupPath = Join-Path $Script:SparkPrefix "state\setup.pending.json"
+    if (-not (Test-Path -LiteralPath $pendingSetupPath)) {
+        return $false
+    }
+    try {
+        return (Get-Content -LiteralPath $pendingSetupPath -Raw -ErrorAction Stop).Contains('"event": "setup_refresh_paused"')
+    } catch {
+        return $false
+    }
+}
+
+function Show-InstallOutcome {
+    $pendingSetupPath = Join-Path $Script:SparkPrefix "state\setup.pending.json"
+    if ($SkipSetup) {
+        $setupLine = "[SKIP] Setup: skipped by request"
+        $runtimeLine = "[MANUAL] Runtime: start after setup"
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding after setup"
+    } elseif (Test-SetupRefreshPaused) {
+        $setupLine = "[PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them"
+        $runtimeLine = "[OK] Existing runtime: can keep running with the current setup"
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding"
+    } elseif (Test-Path -LiteralPath $pendingSetupPath) {
+        $setupLine = "[PAUSED] Setup: run spark doctor"
+        $runtimeLine = "[MANUAL] Runtime: resume setup before changing secrets"
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding after setup resumes"
+    } else {
+        $setupLine = "[OK] Setup: configured"
+        if ($NoAutostart) {
+            $runtimeLine = "[MANUAL] Runtime: start after setup"
+        } else {
+            $runtimeLine = "[STARTED] Runtime: setup handled start/autostart"
+        }
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding"
+    }
+    Write-Host ""
+    Write-Host "Install outcome:"
+    Write-Host "  [OK] CLI upgrade: complete"
+    Write-Host "  $setupLine"
+    Write-Host "  $runtimeLine"
+    Write-Host "  $telegramLine"
+}
+
 function Invoke-Install {
     $Script:SparkPrefix = Resolve-FullPath $Prefix
     Apply-InstallDefaults
@@ -739,6 +1000,7 @@ function Invoke-Install {
         return
     }
     Show-DryRunPlan
+    Test-SetupApprovalPreflight
     Invoke-Preflight
     if ($Preflight) {
         Write-SparkLog "Preflight complete."
@@ -763,49 +1025,51 @@ function Invoke-Install {
     Run-Setup -CliDir $cliDir
     Run-Autostart
     Write-SparkLog "Done."
+    $sparkCmd = Join-Path $Script:SparkPrefix "bin\spark.cmd"
     Write-Host ""
     Write-Host "Spark command:"
     Write-Host "  spark --help"
     Write-Host "  spark guide"
     Write-Host "  spark providers list"
     Write-Host ""
-    Write-Host "Direct wrapper path:"
-    Write-Host "  $Script:SparkPrefix\bin\spark.cmd --help"
-    Write-Host "  $Script:SparkPrefix\bin\spark.cmd guide"
-    Write-Host "  $Script:SparkPrefix\bin\spark.cmd providers list"
+    Write-Host "Direct wrapper path for this terminal:"
+    Write-Host "  & `"$sparkCmd`" --help"
+    Write-Host "  & `"$sparkCmd`" guide"
+    Write-Host "  & `"$sparkCmd`" providers list"
     Write-Host ""
-    Write-Host "If `spark` is not found in this terminal yet, close and reopen the terminal."
+    Write-Host "If `spark` is not found in this terminal yet, close and reopen PowerShell, or use the direct wrapper path above. Do not reinstall just to refresh PATH."
     Write-Host ""
     Write-Host "Install log:"
     Write-Host "  $Script:InstallLogPath"
+    Show-InstallOutcome
     Write-Host ""
     if ($SkipSetup) {
         Write-Host "Setup was skipped."
         Write-Host "Next:"
-        Write-Host "  $Script:SparkPrefix\bin\spark.cmd setup $Bundle"
+        Write-Host "  & `"$sparkCmd`" setup $Bundle"
         Write-Host ""
         Write-Host "After setup succeeds:"
-        Write-Host "  $Script:SparkPrefix\bin\spark.cmd verify --onboarding"
+        Write-Host "  & `"$sparkCmd`" verify --onboarding"
         return
     }
     Write-Host ""
-    Write-Host "Operational checks:"
-    Write-Host "  spark live start"
-    Write-Host "  spark live status"
-    Write-Host "  spark providers status"
-    Write-Host "  spark providers test --role chat"
-    Write-Host "  spark verify --onboarding"
-    Write-Host "  spark autostart status"
-    Write-Host "  spark fix autostart"
+    Write-Host "Operational checks (copyable even before PATH refresh):"
+    Write-Host "  & `"$sparkCmd`" live start"
+    Write-Host "  & `"$sparkCmd`" live status"
+    Write-Host "  & `"$sparkCmd`" providers status"
+    Write-Host "  & `"$sparkCmd`" providers test --role chat"
+    Write-Host "  & `"$sparkCmd`" verify --onboarding"
+    Write-Host "  & `"$sparkCmd`" autostart status"
+    Write-Host "  & `"$sparkCmd`" fix autostart"
     Write-Host ""
     if ($NoAutostart) {
         Write-Host "Autostart was not installed for this run."
         Write-Host "To enable it later:"
-        Write-Host "  spark autostart on telegram-starter --now"
+        Write-Host "  & `"$sparkCmd`" autostart on telegram-starter --now"
     } else {
         Write-Host "Spark autostart is enabled by default so Spark comes back after login."
         Write-Host "To disable it later:"
-        Write-Host "  spark autostart off"
+        Write-Host "  & `"$sparkCmd`" autostart off"
     }
     Write-Host ""
     Write-Host "Start chatting and building:"
@@ -817,12 +1081,12 @@ function Invoke-Install {
     Write-Host "  6. When you are ready, ask Spark how it can improve for your workflows"
     Write-Host ""
     Write-Host "If Telegram is quiet or memory is not responding:"
-    Write-Host "  spark fix telegram"
-    Write-Host "  spark logs spark-telegram-bot"
+    Write-Host "  & `"$sparkCmd`" fix telegram"
+    Write-Host "  & `"$sparkCmd`" logs spark-telegram-bot"
     Write-Host ""
     Write-Host "If Mission Control, Kanban, Canvas, or preview links are not responding:"
-    Write-Host "  spark fix spawner"
-    Write-Host "  spark logs spawner-ui --lines 80"
+    Write-Host "  & `"$sparkCmd`" fix spawner"
+    Write-Host "  & `"$sparkCmd`" logs spawner-ui --lines 80"
 }
 
 try {

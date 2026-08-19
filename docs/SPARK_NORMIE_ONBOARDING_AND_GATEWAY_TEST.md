@@ -1,6 +1,6 @@
 # Spark Normie Onboarding and Gateway Test
 
-Last updated: 2026-04-24
+Last updated: 2026-06-10
 
 This is the launch-facing contract for a fresh Spark install. The user should not install Spark repos one by one. They should install Spark CLI, run setup once, paste a Telegram bot token and one LLM provider key, then have the starter ecosystem wired together.
 
@@ -8,12 +8,15 @@ This is the launch-facing contract for a fresh Spark install. The user should no
 
 `spark setup` defaults to the `telegram-starter` bundle:
 
-1. `spark-researcher`
-2. `spark-character`
-3. `spark-intelligence-builder`
-4. `domain-chip-memory`
-5. `spawner-ui`
-6. `spark-telegram-bot`
+1. `spark-harness-core`
+2. `spark-researcher`
+3. `spark-character`
+4. `spark-intelligence-builder`
+5. `domain-chip-memory`
+6. `spawner-ui`
+7. `spark-telegram-bot`
+
+The full installer proof lane is 11 canonical repos: `spark-cli` plus the 10 registry-pinned runtime/support modules. `telegram-starter` directly bootstraps 7 runtime modules; `telegram-voice-starter`, QA Evidence Lane, and Skill Graphs must still pass optional-module proof before the whole 11-repo lane is called installer-ready.
 
 The CLI clones or discovers these modules, validates each `spark.toml`, checks capability conflicts, installs in dependency order, records the bundle, writes module env, stores declared secrets, and generates the local relay secret shared by Telegram and Spawner.
 
@@ -87,7 +90,7 @@ spark setup \
   --admin-telegram-ids "<YOUR_TELEGRAM_NUMERIC_ID>" \
   --llm-provider openai \
   --openai-api-key "<OPENAI_API_KEY>" \
-  --openai-model "gpt-5.5"
+  --openai-model "gpt-5.6-sol"
 ```
 
 ### Anthropic
@@ -220,3 +223,23 @@ For local development, patch the registry to point at sibling local repos or run
 ## Future Webhook Work
 
 Webhook support is intentionally out of launch v1. Reintroduce it only through a hosted gateway migration with secret-token validation, replay protection, ingress tests, and public-network threat modeling. Do not document webhook setup as a user launch path until that exists.
+
+## Known UX Gap - Architecture Explanation
+
+Mission #16 QA on 2026-05-22 produced a maintainer-reviewed backlog note: first replies to architecture-confusion questions can under-explain the system boundary. This is QA evidence, not a runtime instruction or proof that Telegram behavior is fixed.
+
+Trigger: a user asks which AI is doing what.
+
+Expected response:
+
+1. Identify the current surface correctly.
+2. Explain Spark, the outside LLM, Spawner, Builder, and memory in one reply.
+3. Avoid requiring follow-up questions for the basic architecture map.
+
+Observed gap:
+
+- The response named the wrong surface.
+- It collapsed the system into one AI and skipped Spawner, Builder, and memory.
+- The complete explanation only appeared after follow-up questions.
+
+Fix needed: first responses to architecture-confusion questions should provide the complete boundary map without claiming authority from the wrong surface. Telegram behavior changes belong in the Telegram/Builder owner repos, not in this CLI doc.

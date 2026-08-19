@@ -1,0 +1,35 @@
+{
+  "schema_version": "spark-gate-map.v1",
+  "description": "Registers each gate's deciding code against the evidence it evaluates (research-repo docs/33 §3, the d7fc1df rule). gate_evidence_separation.py rejects any commit touching both sides of one gate; the release-gate capture tree-hashes every gate_code file so a gate edit invalidates prior captures.",
+  "separation_enforced_after": "222a9c6380a0076d1018aed17975f3e5be2a9e8f",
+  "gates": {
+    "release_gate": {
+      "description": "spark verify --r30 (the 20/22-check release gate) + the binding machinery",
+      "gate_code": [
+        "src/spark_cli/release_gate.py",
+        "src/spark_cli/cli.py",
+        "src/spark_cli/system_map.py",
+        "scripts/hooks/pre-push",
+        "scripts/harness_checks/release_policy_binding_gate.py",
+        "scripts/harness_checks/gate_evidence_separation.py"
+      ],
+      "evidence": [
+        "registry.json",
+        "scripts/installer-manifest.json",
+        "scripts/install.sh",
+        "scripts/install.ps1",
+        "docs/R30_*.md",
+        "docs/R30_*.json"
+      ]
+    },
+    "line_count_gate": {
+      "description": "R-21 god-file line-count ratchet",
+      "gate_code": [
+        "scripts/harness_checks/line_count_gate.py"
+      ],
+      "evidence": [
+        "scripts/harness_checks/line_count_baseline.json"
+      ]
+    }
+  }
+}

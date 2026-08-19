@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import ctypes
+import errno
 import getpass
 import hashlib
+import importlib.util
 import io
 import ipaddress
 import json
@@ -15,10 +18,12 @@ import secrets as py_secrets
 import shlex
 import shutil
 import signal
+import socket
 import ssl
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -33,15 +38,55 @@ from xml.sax.saxutils import escape as xml_escape
 
 import tomllib
 
-from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
-from .security.approval import CommandContext, approval_required_for_command
+from . import secret_input_authority
+from .command_summary import sanitize_command_line, select_failure_summary
+from .bridge_key import BRIDGE_API_KEY_ENV, BRIDGE_API_KEY_SECRET_ID, BRIDGE_CONSUMER_MODULES
+from .bridge_key import RESERVED_CONTROL_KEYS, load_generated_bridge_envs, resolve_shared_spawner_bridge_api_key
+from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
+from .machine_output import emit_json_payload, render_module_listing, resolve_os_json_output_path
+from . import managed_secret_runtime
+from .provider_auth import effective_provider_auth_mode
+from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
+from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
+from .r30_merged_source_truth import (
+    classify_r30_os_compile_status,
+    collect_r30_merged_source_truth_status,
+    evaluate_r30_source_truth,
+    present_r30_historical_handoffs,
+)
+from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
+from .secret_listing import render_secret_presence, render_stored_secret_listing
+from .secret_storage_notice import warn_insecure_file_secret_storage
+from .secret_help import SECRET_BACKEND_HELP, SECRET_ID_DELETE_HELP, SECRET_ID_GET_HELP, SECRET_ID_SET_HELP
+from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
-from .security.url_policy import UrlPolicy, validate_url_safety
-from .system_map import compile_summary, compile_system_map, write_compiled_outputs
+from .security.provider_transport import (
+    open_pinned_provider_request as _open_pinned_provider_request,
+    read_llm_provider_json as _read_llm_provider_json,
+    validated_llm_provider_endpoint as _validated_llm_provider_endpoint,
+)
+from .security.url_policy import (
+    AddressResolver,
+    UrlPolicy,
+    validate_local_health_url,
+    validate_url_resolution,
+    validate_url_safety,
+)
+from .state_hardening import STATE_DIRECTORY_HARDENING_WARNING, ensure_private_directories
+from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
+from .telegram_fix_health import resolve_telegram_fix_health
+from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
+INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
+ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
+SETUP_OPTIONAL_ON_UPGRADE_ENV = "SPARK_SETUP_OPTIONAL_ON_UPGRADE"
 PRIVATE_FILE_MODE = 0o600
+MAX_PROCESS_LOG_BYTES = 10 * 1024 * 1024
+MAX_PROCESS_LOG_ENTRY_BYTES = 64 * 1024
+MAX_LOG_TAIL_BYTES = 2 * 1024 * 1024
+GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
 
 SPARK_HOME = Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
@@ -55,15 +100,34 @@ SETUP_PENDING_PATH = STATE_DIR / "setup.pending.json"
 TELEGRAM_FIRST_MESSAGE_EVENTS_PATH = STATE_DIR / "onboarding" / "telegram-first-message.jsonl"
 PID_PATH = STATE_DIR / "pids.json"
 PID_LOCK_PATH = STATE_DIR / "pids.json.lock"
+BRIDGE_ROTATION_LOCK_PATH = STATE_DIR / "bridge-api-key.rotation.lock"
 INSTALL_PROGRESS_PATH = STATE_DIR / "install_progress.json"
 USER_CONFIG_PATH = CONFIG_DIR / "config.json"
 SECRETS_INDEX_PATH = CONFIG_DIR / "secrets_index.json"
 SECRETS_FILE_PATH = CONFIG_DIR / "secrets.local.json"
+# Secret id for the Governor HMAC signing key. Shared (same value) by the spawner
+# (signer) and builder/harness (verifier); the harness enforces signature
+# verification whenever this key is present, so provisioning it IS the enforcement.
+GOVERNOR_HMAC_SECRET_ID = "governor.hmac_key"
 KEYCHAIN_SERVICE = "spark-cli"
 AUTOSTART_SERVICE_NAME = "spark-telegram-agent"
 AUTOSTART_LAUNCHD_LABEL = "ai.sparkswarm.spark-telegram-agent"
 AUTOSTART_WINDOWS_TASK_NAME = "Spark Telegram Agent"
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def discover_repo_root() -> Path:
+    env_root = os.environ.get("SPARK_CLI_SOURCE_ROOT")
+    candidates = []
+    if env_root:
+        candidates.append(Path(os.path.abspath(os.fspath(Path(env_root).expanduser()))))
+    package_root = Path(os.path.abspath(os.fspath(Path(__file__).expanduser()))).parents[2]
+    cwd = Path.cwd().resolve()
+    candidates.extend([package_root, cwd, *cwd.parents])
+    for candidate in candidates:
+        if (candidate / "pyproject.toml").exists() and (candidate / "scripts" / "install.sh").exists():
+            return candidate
+    return package_root
+
+
+REPO_ROOT = discover_repo_root()
 LOCAL_REGISTRY_PATH = REPO_ROOT / "registry.json"
 INSTALLER_MANIFEST_PATH = REPO_ROOT / "scripts" / "installer-manifest.json"
 INSTALLER_SCRIPT_PATHS = {
@@ -83,18 +147,220 @@ PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
 TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
+R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-07-27-r30-v2"
+R30_HISTORICAL_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
+R30_RELEASE_PLAN_PATH = REPO_ROOT / "docs" / "R30_RELEASE_PLAN_2026-06-27.md"
+R30_SOURCE_OWNER_AUDIT_PATH = REPO_ROOT / "docs" / "R30_SOURCE_OWNER_AUDIT_2026-06-27.md"
+R30_OWNER_HANDOFF_PACKET_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
+R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
+R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json"
+R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.md"
+R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
+R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
+R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
+R30_REQUIRED_DOCS = [
+    "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
+    "docs/R30_RELEASE_PLAN_2026-06-27.md",
+    "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+    "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+    "docs/R30_OWNER_CONVERGENCE_QUEUE_2026-06-28.md",
+    "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+    "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
+    "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+    "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+    "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+    "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
+    "docs/R30_INSTALLER_PREP_2026-06-27.md",
+    "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
+    "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md",
+    "docs/R30_DCL_SPAWNER_RELIABILITY_WORKFLOWS_2026-06-28.md",
+    "docs/R30_DCL_SYSTEM_SOURCE_MAP_2026-06-28.md",
+    "docs/R30_DCL_SPAWNER_QA_PLAN_2026-06-28.md",
+    "docs/R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md",
+    "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
+    "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",
+    "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
+    "docs/R30_GOAL_PROMPT_2026-06-27.md",
+]
+R30_VOICE_REPO_URL = "https://github.com/vibeforge1111/spark-voice-comms"
+R30_OWNER_REF_AUDIT_SOURCES = {
+    "domain-chip-memory": {
+        "source": "https://github.com/vibeforge1111/domain-chip-memory",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_branch": "refs/heads/codex/turnintent-memory-boundary-20260531",
+        },
+    },
+    "spark-intelligence-builder": {
+        "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_branch": "refs/heads/codex/turnintent-builder-boundary-20260531",
+        },
+    },
+    "spark-telegram-bot": {
+        "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "registry_baseline": "refs/tags/spark-ship-2026-06-22",
+        },
+    },
+    "spark-voice-comms": {
+        "source": R30_VOICE_REPO_URL,
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_branch": "refs/heads/codex/turnintent-voice-policy-20260531",
+        },
+    },
+    "spawner-ui": {
+        "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_release_branch": "refs/heads/release/stability-2026-06-02-spawner-authority",
+            "registry_baseline": "refs/tags/spark-ship-2026-06-22",
+        },
+    },
+}
+R30_DIRECT_RELEASE_MODULES = {
+    "domain-chip-memory",
+    "spark-intelligence-builder",
+    "spark-telegram-bot",
+    "spark-voice-comms",
+    "spawner-ui",
+}
+R30_RELEASE_LANE_ACTIONS = {
+    "domain-chip-memory": {
+        "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
+        "proof_commands": ["PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"],
+    },
+    "domain-chip-spark-qa-evidence-lane": {
+        "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-character": {
+        "next_action": "Converge Character owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-harness-core": {
+        "next_action": "Converge Harness Core owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-intelligence-builder": {
+        "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
+        "proof_commands": [
+            "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+        ],
+    },
+    "spark-researcher": {
+        "next_action": "Converge Researcher owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-skill-graphs": {
+        "next_action": "Converge Skill Graphs owner source and installed metadata before claiming the optional-module lane ship-ready.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-telegram-bot": {
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "proof_commands": [
+            "npm test -- --run tests/domainChipLabsCreator.test.ts",
+            "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+            "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+            "npm run build",
+            "npm run control:proof:reliability",
+            "npm run check:line-count",
+            "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+            "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts",
+        ],
+    },
+    "spark-voice-comms": {
+        "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+        "proof_commands": [
+            "PYTHONPATH=src python3 -m pytest -q",
+            "spark os compile --json",
+            "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+            "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+        ],
+    },
+    "spawner-ui": {
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "proof_commands": [
+            "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+            "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+            "npm run build",
+            "npm run check",
+        ],
+    },
+}
+
+R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
+    "spark-telegram-bot": [
+        "Add Telegram rich draft streaming controls",
+        "Package Telegram control release evidence",
+        "Prove Telegram Level 5 activation path",
+        "Fix Level 5 Codex sandbox confirmation",
+        "Surface effective Level 5 sandbox in Telegram",
+        "Block Level 5 full-access copy on read-only sandbox",
+        "Require effective Level 5 sandbox before operator claims",
+        "Harden Telegram Level 5 sandbox status",
+        "Harden Telegram Level 5 proof gate",
+        "Use proof oracle for Telegram Level 5",
+        "Require effective Level 5 sandbox proof in Telegram",
+        "Require Level 5 proof for operator access status",
+        "Harden Telegram Level 5 runtime env",
+        "Compact Telegram imports after Level 5 env fix",
+        "Harden Recursive Level 5 runtime env",
+        "Preserve Telegram token during profile health checks",
+        "Harden Telegram profile Level 5 env proof",
+        "Refresh Telegram Level 5 profile env",
+        "Require Telegram Level 5 full permission proof",
+        "Harden Telegram Level 5 proof agreement",
+        "Improve domain chip creation preview",
+        "Harden DCL creator mission routing",
+    ],
+    "spawner-ui": [
+        "Carry Harness proof refs in PRD traces",
+        "Add Spawner PRD proof continuity repair",
+        "Honor Level 5 Codex sandbox in direct client",
+        "Honor Level 5 sandbox in PRD Codex lanes",
+        "Honor persisted Level 5 sandbox in Spawner",
+        "Honor persisted Level 5 worker access",
+        "Carry Level 5 env into Codex workers",
+        "Promote Level 5 env for Spawner access actions",
+    ],
+}
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
-SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([0-9a-fA-F]{40})"')
+SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
-POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([0-9a-fA-F]{40})"')
+POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([A-Za-z0-9._/-]+)"')
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
+PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS = 300
 MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
 MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
 DEFAULT_GRAPHITI_GROUP_ID = "spark-memory"
-VOICE_MODULE_NAME = "spark-voice-comms"
 TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
+BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
+BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
+BROWSER_USE_PROBE_SESSION = "spark-probe"
+BROWSER_USE_PROBE_URL = "https://example.com"
+BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
+BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
+BROWSER_USE_ACTION_TEXT_LIMIT = 1800
+BROWSER_USE_TASK_TEXT_LIMIT = 2600
+BROWSER_USE_AGENT_SYSTEM_NUDGE = (
+    "Spark wrapper instruction: every assistant response in the browser-use loop must use the "
+    "available action schema only. Do not answer with plain prose during intermediate steps. "
+    "When the requested browser work is complete, call the done action with a concise answer "
+    "grounded only in observed browser state."
+)
+BROWSER_USE_AGENT_LLM_SCREENSHOT_SIZE = (1400, 850)
 SAFE_PARENT_ENV_KEYS = {
     "APPDATA",
     "COMSPEC",
@@ -133,17 +399,20 @@ SAFE_PARENT_ENV_PREFIXES = ("XDG_",)
 STATIC_PROVIDER_ENV_BLOCKLIST = {
     "ANTHROPIC_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "ELEVENLABS_API_KEY",
     "GOOGLE_API_KEY",
     "KIMI_API_KEY",
     "MINIMAX_API_KEY",
     "MOONSHOT_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_API_KEY",
+    "SPARK_BRIDGE_API_KEY",
     "SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_URL",
     "TELEGRAM_API_BASE",
     "TELEGRAM_BOT_TOKEN",
+    "VOICE_OPENAI_API_KEY",
     "ZAI_API_KEY",
     "ZAI_BASE_URL",
 }
@@ -166,6 +435,7 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/root",
     "/var/run/docker.sock",
 )
+OPENAI_COMPAT_HTTP_USER_AGENT = "Spark-CLI/1.0 (+https://github.com/vibeforge1111/spark-cli)"
 TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
 TRUST_BLOCK_THRESHOLD = {
     "builtin": "critical",
@@ -242,7 +512,7 @@ CHIP_SCAN_PATTERNS = (
     (
         "embedded-private-key",
         "critical",
-        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----"),
+        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
         "private key material is embedded in the module",
     ),
     (
@@ -459,22 +729,44 @@ def is_git_source(source: str) -> bool:
         return True
     if value.endswith(".git"):
         return True
-    if value.startswith("github.com/") or value.startswith("gitlab.com/"):
+    if is_hosted_git_shorthand(value):
         return True
     return False
 
 
+def is_hosted_git_shorthand(value: str) -> bool:
+    parts = value.strip().split("/")
+    return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
+
+
 def normalize_git_url(source: str) -> str:
     value = source.strip()
-    if value.startswith(("github.com/", "gitlab.com/")):
+    if not value:
+        raise SystemExit("Invalid git source: a non-empty URL is required.")
+    if value.startswith("-"):
+        raise SystemExit("Invalid git source: option-like URLs are not allowed.")
+    if is_hosted_git_shorthand(value):
         return f"https://{value}"
     return value
+
+
+def git_ls_remote_command(source: str, *refs: str) -> list[str]:
+    return git_command("ls-remote", "--", normalize_git_url(source), *refs)
+
+
+def _sanitize_module_name(name: str) -> str:
+    """Remove path traversal sequences from a module name to prevent directory escaping."""
+    # Strip path separators and traversal sequences
+    sanitized = re.sub(r"[/\\]", "", name)
+    sanitized = re.sub(r"\.\.", "", sanitized)
+    sanitized = sanitized.strip(".")
+    return sanitized or "module"
 
 
 def infer_module_name_from_url(url: str) -> str:
     cleaned = url.strip().removesuffix(".git").rstrip("/")
     last = cleaned.split("/")[-1]
-    return last or "module"
+    return _sanitize_module_name(last)
 
 
 def clone_target_for_module(name: str) -> Path:
@@ -482,7 +774,35 @@ def clone_target_for_module(name: str) -> Path:
 
 
 def git_command(*args: str) -> list[str]:
-    return ["git", "-c", "core.longpaths=true", *args]
+    disabled_hooks_path = "NUL" if os.name == "nt" else "/dev/null"
+    return [
+        "git",
+        "-c",
+        "core.longpaths=true",
+        "-c",
+        f"core.hooksPath={disabled_hooks_path}",
+        "-c",
+        "protocol.ext.allow=never",
+        *args,
+    ]
+
+
+GIT_OPERATION_TIMEOUT_SECONDS = 60
+GIT_CLONE_TIMEOUT_SECONDS = 300
+
+
+def run_bounded_git_command(
+    command: list[str], *, cwd: Path | None = None, timeout: float = GIT_OPERATION_TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess[str]:
+    """Run policy-shaped git argv with a finite, non-reflecting timeout result."""
+    try:
+        return subprocess.run(
+            command, cwd=str(cwd) if cwd else None, capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            command, 124, stdout="", stderr=f"git operation timed out after {timeout:g}s"
+        )
 
 
 def validate_commit_pin(commit: str | None) -> str | None:
@@ -495,12 +815,13 @@ def validate_commit_pin(commit: str | None) -> str | None:
 
 
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        git_command(*args),
-        cwd=str(cwd) if cwd else None,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = run_bounded_git_command(git_command(*args), cwd=cwd)
+    except OSError as exc:
+        raise SystemExit(
+            f"git operation failed for {name}: could not start git. "
+            "Install Git and make sure it is on PATH."
+        ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise SystemExit(f"git operation failed for {name}: {detail}")
@@ -508,10 +829,8 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
 
 
 def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
-    verify_result = subprocess.run(
-        git_command("-C", str(target), "verify-commit", commit),
-        capture_output=True,
-        text=True,
+    verify_result = run_bounded_git_command(
+        git_command("-C", str(target), "verify-commit", commit)
     )
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
@@ -610,125 +929,272 @@ class ReportOnlyModuleProvenanceVerifier:
         )
 
 
+def is_orphan_clone(target: Path) -> bool:
+    """A clone dir that has a .git but no spark.toml is an incomplete/interrupted
+    clone (the manifest is checked out last). Callers decide whether it is safe
+    to resume, preserve, or explicitly clean."""
+    return target.is_dir() and (target / ".git").exists() and not (target / "spark.toml").exists()
+
+
+def remove_orphan_clone(target: Path) -> None:
+    """Best-effort removal of an incomplete clone so the next install can resume.
+    Only ever called on a path under SPARK_HOME/modules that is itself a git
+    checkout; never touches a non-git directory."""
+    try:
+        if target.is_dir() and (target / ".git").exists():
+            shutil.rmtree(target, ignore_errors=True)
+    except OSError:
+        pass
+
+
+def normalized_remote_locator(value: str) -> str:
+    """Normalize local repository paths without weakening URL identity checks."""
+    locator = value.strip()
+    if "://" in locator or locator.startswith("git@"):
+        return locator
+    return str(Path(locator).expanduser().resolve(strict=False))
+
+
+def prepare_pinned_clone_resume(name: str, target: Path, url: str) -> bool:
+    """Verify that an interrupted pinned checkout is safe to resume in place."""
+    git_dir = target / ".git"
+    guidance = "Move the partial checkout aside and retry."
+    if target.is_symlink() or git_dir.is_symlink() or not git_dir.is_dir():
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: linked git metadata is not trusted. {guidance}"
+        )
+
+    head = run_bounded_git_command(
+        git_command("-C", str(target), "rev-parse", "--verify", "HEAD")
+    )
+    if head.returncode == 0:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: partial checkout already has a commit. {guidance}"
+        )
+
+    status = run_bounded_git_command(
+        git_command("-C", str(target), "status", "--porcelain", "--untracked-files=all")
+    )
+    if status.returncode != 0:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: git metadata could not be verified. {guidance}"
+        )
+    if status.stdout.strip():
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: partial checkout contains files. {guidance}"
+        )
+
+    remotes = run_bounded_git_command(git_command("-C", str(target), "remote"))
+    if remotes.returncode != 0:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: remote configuration could not be verified. {guidance}"
+        )
+    remote_names = [remote.strip() for remote in remotes.stdout.splitlines() if remote.strip()]
+    if not remote_names:
+        run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+        return True
+    if remote_names != ["origin"]:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: remote configuration is not trusted. {guidance}"
+        )
+
+    origin = run_bounded_git_command(
+        git_command("-C", str(target), "remote", "get-url", "--all", "origin")
+    )
+    push_origin = run_bounded_git_command(
+        git_command("-C", str(target), "remote", "get-url", "--push", "--all", "origin")
+    )
+    fetch_urls = [value for value in origin.stdout.splitlines() if value.strip()]
+    push_urls = [value for value in push_origin.stdout.splitlines() if value.strip()]
+    expected = normalized_remote_locator(url)
+    if (
+        origin.returncode != 0
+        or push_origin.returncode != 0
+        or len(fetch_urls) != 1
+        or len(push_urls) != 1
+        or normalized_remote_locator(fetch_urls[0]) != expected
+        or normalized_remote_locator(push_urls[0]) != expected
+    ):
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: existing origin does not match the registry source. {guidance}"
+        )
+    return True
+
+
+def scan_orphan_module_clones() -> list[Path]:
+    """Find interrupted module clones under ~/.spark/modules (.git present but no
+    spark.toml). These block reinstalls until removed."""
+    modules_root = SPARK_HOME / "modules"
+    orphans: list[Path] = []
+    if not modules_root.is_dir():
+        return orphans
+    try:
+        entries = sorted(modules_root.iterdir())
+    except OSError:
+        return orphans
+    for entry in entries:
+        target = entry / "source"
+        if is_orphan_clone(target):
+            orphans.append(target)
+    return orphans
+
+
 def clone_module_source(
     name: str,
     source: str,
     *,
     commit: str | None = None,
     require_signed_commit: bool = False,
+    allow_dirty_runtime: bool = False,
 ) -> Path:
     target = clone_target_for_module(name)
+    url = normalize_git_url(source)
+    pinned_commit = validate_commit_pin(commit)
     if (target / "spark.toml").exists() and (target / ".git").exists():
-        pinned_commit = validate_commit_pin(commit)
         if pinned_commit:
-            resolved = subprocess.run(
-                git_command("-C", str(target), "rev-parse", "HEAD"),
-                capture_output=True,
-                text=True,
+            resolved = run_bounded_git_command(
+                git_command("-C", str(target), "rev-parse", "HEAD")
             )
             if resolved.returncode != 0 or resolved.stdout.strip().lower() != pinned_commit:
                 raise SystemExit(
                     f"Installed clone for {name} is not at pinned commit {pinned_commit}. "
                     "Run `spark uninstall` for the module and reinstall it."
                 )
+        dirty_status = git_short_status(target)
+        if dirty_status and not allow_dirty_runtime:
+            raise SystemExit(
+                f"Installed clone for {name} has local git changes. "
+                "Commit or stash them before installing, or pass --allow-dirty-runtime for intentional local runtime testing."
+            )
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not (target / ".git").exists():
-        raise SystemExit(
-            f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first."
-        )
-    url = normalize_git_url(source)
-    pinned_commit = validate_commit_pin(commit)
+    # A pinned partial checkout is resumed only after its metadata, worktree, and
+    # registry origin are verified. Unpinned installs retain the legacy clean
+    # re-clone behavior. A non-git directory is always preserved.
+    resuming_existing = False
+    if target.exists() or target.is_symlink():
+        if pinned_commit:
+            resuming_existing = prepare_pinned_clone_resume(name, target, url)
+        elif (target / ".git").exists():
+            remove_orphan_clone(target)
+        else:
+            raise SystemExit(
+                f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first "
+                f"(manual fallback: rm -rf {target})."
+            )
+    # A fresh failed clone is disposable; a verified pre-existing partial checkout
+    # is retained so an interrupted fetch can be retried without losing evidence.
     if pinned_commit:
-        target.mkdir(parents=True, exist_ok=True)
-        run_git_or_exit(name, ["-C", str(target), "init", "-q"])
-        run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
-        run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
-        verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
+        try:
+            if not resuming_existing:
+                target.mkdir(parents=True, exist_ok=True)
+                run_git_or_exit(name, ["-C", str(target), "init", "-q"])
+                run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+            run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
+            verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
+            if not (target / "spark.toml").is_file():
+                raise SystemExit(f"Pinned clone for {name} does not contain a spark.toml manifest.")
+        except (Exception, SystemExit):
+            if not resuming_existing:
+                remove_orphan_clone(target)
+            raise
         return target
-    result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = run_bounded_git_command(
+            git_command("clone", "--depth=1", "--", url, str(target)),
+            timeout=GIT_CLONE_TIMEOUT_SECONDS,
+        )
+    except BaseException:
+        remove_orphan_clone(target)
+        raise
     if result.returncode != 0:
+        remove_orphan_clone(target)
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
-        raise SystemExit(f"git clone failed for {name}: {detail}")
+        raise SystemExit(
+            f"git clone failed for {name}: {detail} "
+            f"(manual fallback if a partial dir remains: rm -rf {target})."
+        )
     return target
 
 
 def pull_module_source(path: Path) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(path), "pull", "--ff-only"),
-        capture_output=True,
-        text=True,
-    )
+    result = run_bounded_git_command(git_command("-C", str(path), "pull", "--ff-only"))
     return result.returncode == 0, summarize_command_output(result)
 
 
-def update_module_source(module: Module) -> tuple[bool, str]:
+def update_module_source(module: Module, *, allow_rollback: bool = False) -> tuple[bool, str]:
     registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
     source = str(registry_metadata.get("source", ""))
     pinned_commit = validate_commit_pin(str(registry_metadata.get("commit", "")))
     if not (is_git_source(source) and pinned_commit):
         return pull_module_source(module.path)
 
-    status = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-    )
+    status = run_bounded_git_command(git_command("-C", str(module.path), "status", "--porcelain"))
     if status.returncode != 0:
         return False, summarize_command_output(status)
     if status.stdout.strip():
         return False, "working tree has local changes; commit or stash them before updating"
 
-    current = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-    )
+    current = run_bounded_git_command(git_command("-C", str(module.path), "rev-parse", "HEAD"))
     if current.returncode != 0:
         return False, summarize_command_output(current)
     current_commit = current.stdout.strip().lower()
     if current_commit == pinned_commit:
         return True, f"already at pinned commit {pinned_commit[:12]}"
 
-    fetch = subprocess.run(
+    fetch = run_bounded_git_command(
         git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
-        capture_output=True,
-        text=True,
+        timeout=GIT_CLONE_TIMEOUT_SECONDS,
     )
     if fetch.returncode != 0:
         return False, summarize_command_output(fetch)
 
+    ancestry_note = ""
+    ancestry = run_bounded_git_command(
+        git_command("-C", str(module.path), "merge-base", "--is-ancestor", pinned_commit, current_commit)
+    )
+    if ancestry.returncode != 0:
+        shallow = run_bounded_git_command(
+            git_command("-C", str(module.path), "rev-parse", "--is-shallow-repository")
+        )
+        if shallow.returncode == 0 and shallow.stdout.strip().lower() == "true":
+            deepen = run_bounded_git_command(
+                git_command("-C", str(module.path), "fetch", "--deepen=50", "origin", pinned_commit, current_commit),
+                timeout=GIT_CLONE_TIMEOUT_SECONDS,
+            )
+            if deepen.returncode == 0:
+                ancestry = run_bounded_git_command(
+                    git_command("-C", str(module.path), "merge-base", "--is-ancestor", pinned_commit, current_commit),
+                )
+            else:
+                ancestry_note = " (ancestry undecidable, shallow history)"
+    if ancestry.returncode == 0 and not allow_rollback:
+        return False, (
+            f"registry pin {pinned_commit[:12]} is older than installed {current_commit[:12]}; "
+            "pass --allow-rollback to force"
+        )
+    if ancestry.returncode > 1:
+        ancestry_note = " (ancestry undecidable, shallow history)"
+
     if bool(registry_metadata.get("require_signed_commit", False)):
-        verify = subprocess.run(
-            git_command("-C", str(module.path), "verify-commit", pinned_commit),
-            capture_output=True,
-            text=True,
+        verify = run_bounded_git_command(
+            git_command("-C", str(module.path), "verify-commit", pinned_commit)
         )
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
 
-    checkout = subprocess.run(
-        git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
-        capture_output=True,
-        text=True,
+    checkout = run_bounded_git_command(
+        git_command("-C", str(module.path), "checkout", "--detach", pinned_commit)
     )
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
 
-    resolved = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-    )
+    resolved = run_bounded_git_command(git_command("-C", str(module.path), "rev-parse", "HEAD"))
     if resolved.returncode != 0:
         return False, summarize_command_output(resolved)
     if resolved.stdout.strip().lower() != pinned_commit:
         return False, f"checkout mismatch: expected {pinned_commit}, got {resolved.stdout.strip()}"
-    return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}"
+    return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}{ancestry_note}"
 
 
 def is_dirty_update_failure(detail: str) -> bool:
@@ -741,11 +1207,7 @@ def is_dirty_update_failure(detail: str) -> bool:
 
 
 def module_git_status(module: Module) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-    )
+    result = run_bounded_git_command(git_command("-C", str(module.path), "status", "--porcelain"))
     return result.returncode == 0, result.stdout.strip() if result.returncode == 0 else summarize_command_output(result)
 
 
@@ -764,10 +1226,8 @@ def dirty_update_modules(modules: list[Module]) -> list[tuple[Module, str]]:
 
 def stash_module_local_changes(module: Module) -> tuple[bool, str]:
     label = datetime.now(timezone.utc).strftime("spark-update-local-runtime-%Y%m%dT%H%M%SZ")
-    result = subprocess.run(
-        git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
-        capture_output=True,
-        text=True,
+    result = run_bounded_git_command(
+        git_command("-C", str(module.path), "stash", "push", "-u", "-m", label)
     )
     return result.returncode == 0, summarize_command_output(result) or label
 
@@ -837,7 +1297,28 @@ def retry_remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
     func(path)
 
 
+def grant_windows_delete_access(path: Path) -> None:
+    if os.name != "nt":
+        return
+    username = os.environ.get("USERNAME", "").strip()
+    if not username:
+        return
+    domain = os.environ.get("USERDOMAIN", "").strip()
+    principals = [f"{domain}\\{username}"] if domain else []
+    principals.append(username)
+    for principal in principals:
+        result = subprocess.run(
+            ["icacls", str(path), "/grant", f"{principal}:(OI)(CI)F", "/T", "/C"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+
+
 def remove_tree(path: Path) -> None:
+    grant_windows_delete_access(path)
     target = long_path_aware(path)
     try:
         shutil.rmtree(target, onexc=retry_remove_readonly)
@@ -853,12 +1334,7 @@ def remove_module_clone(name: str) -> None:
 
 
 def ensure_state_dirs() -> None:
-    for path in (SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR):
-        path.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(path, 0o700)
-        except OSError:
-            pass
+    ensure_private_directories((SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR))
 
 
 def keychain_available() -> bool:
@@ -866,7 +1342,11 @@ def keychain_available() -> bool:
         return False
     try:
         _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
-    except Exception:
+    except Exception as error:
+        sys.stderr.write(
+            "spark-cli: system store availability check failed "
+            f"(error type: {type(error).__name__}); file fallback may be used.\n"
+        )
         return False
     return True
 
@@ -921,14 +1401,80 @@ def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
     repo_root = REPO_ROOT.resolve()
     root = Path(resolved.anchor).resolve()
     if resolved == root or resolved == home or resolved == repo_root:
-        raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
+        raise SystemExit("Refusing to purge unsafe Spark home path. The configured Spark home resolves to a system-critical directory.")
     return resolved
+
+
+def path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def running_from_path(target: Path) -> bool:
+    resolved_target = target.resolve()
+    candidates = [Path(sys.executable)]
+    try:
+        candidates.append(Path(__file__))
+    except NameError:  # pragma: no cover - defensive for embedded launchers
+        pass
+    for candidate in candidates:
+        try:
+            if path_is_relative_to(candidate.resolve(), resolved_target):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def schedule_deferred_windows_purge(target: Path) -> None:
+    temp_root = Path(os.environ.get("TEMP") or os.environ.get("TMP") or Path.home()).expanduser()
+    temp_root.mkdir(parents=True, exist_ok=True)
+    script_path = temp_root / f"spark-purge-home-{os.getpid()}.cmd"
+    script_path.write_text(
+        "\n".join(
+            [
+                "@echo off",
+                "if not defined SPARK_PURGE_TARGET exit /b 1",
+                "timeout /t 2 /nobreak >nul",
+                'icacls "%SPARK_PURGE_TARGET%" /grant "%USERDOMAIN%\\%USERNAME%:(OI)(CI)F" /T /C >nul 2>nul',
+                "for /l %%i in (1,1,30) do (",
+                '  rmdir /s /q "%SPARK_PURGE_TARGET%" >nul 2>nul',
+                '  if not exist "%SPARK_PURGE_TARGET%" goto done',
+                "  timeout /t 1 /nobreak >nul",
+                ")",
+                ":done",
+                'del "%~f0" >nul 2>nul',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    creationflags = (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "DETACHED_PROCESS", 0)
+    )
+    subprocess.Popen(
+        ["cmd.exe", "/d", "/c", str(script_path)],
+        env={**os.environ, "SPARK_PURGE_TARGET": str(target)}, close_fds=True,
+        creationflags=creationflags,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def purge_spark_home(spark_home: Path = SPARK_HOME) -> bool:
     target = safe_spark_home_for_purge(spark_home)
     if not target.exists():
         return False
+    if sys.platform == "win32" and running_from_path(target):
+        schedule_deferred_windows_purge(target)
+        print(f"Scheduled Spark home removal after CLI exit: {target}")
+        return True
     remove_tree(target)
     return True
 
@@ -953,7 +1499,7 @@ def default_home_uses_legacy_keychain() -> bool:
 
 
 def load_secrets_index() -> dict[str, str]:
-    return load_json(SECRETS_INDEX_PATH, {})
+    return secret_input_authority.validated_secrets_index(load_json(SECRETS_INDEX_PATH, {}))
 
 
 def save_secrets_index(index: dict[str, str]) -> None:
@@ -974,13 +1520,27 @@ def _kernel32() -> Any:
 
 def dpapi_protect(value: str) -> str:
     if os.name != "nt":
-        return value
+        if not allow_insecure_file_secrets():
+            raise RuntimeError(
+                "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+                "Install/configure a keyring backend, or set "
+                f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
+            )
+        warn_insecure_file_secret_storage()
+        return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptProtectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptProtectData failed (Windows error code {err}). "
+            "Verify a user profile is loaded -- this call commonly fails under "
+            "SSH, scheduled tasks, or service accounts where the interactive "
+            "profile is unavailable. Re-run from an interactive desktop session, "
+            f"or set {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out (insecure)."
+        )
     try:
         protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -989,14 +1549,29 @@ def dpapi_protect(value: str) -> str:
 
 
 def dpapi_unprotect(value: str) -> str:
-    if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
+    if value.startswith(INSECURE_FILE_SECRET_PREFIX):
+        encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
+        return base64.b64decode(encoded).decode("utf-8")
+    if not value.startswith(DPAPI_SECRET_PREFIX):
         return value
+    if os.name != "nt":
+        raise OSError(
+            "DPAPI-protected secret cannot be decrypted on non-Windows. "
+            "Re-enter the secret on this platform to store it without DPAPI encryption."
+        )
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
     buffer = ctypes.create_string_buffer(protected)
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptUnprotectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptUnprotectData failed (Windows error code {err}). "
+            "The stored value may have been written under a different user "
+            "profile, or the master key is unreachable. Re-run from the same "
+            "user account that wrote the value, or delete the stored entry "
+            "and re-enter it with `spark setup`."
+        )
     try:
         raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -1004,38 +1579,106 @@ def dpapi_unprotect(value: str) -> str:
     return raw.decode("utf-8")
 
 
-def harden_secret_file(path: Path) -> None:
+def allow_insecure_file_secrets() -> bool:
+    value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
+    return value in {"1", "true", "yes"}
+
+
+SECRET_FILE_HARDENING_TIMEOUT_SECONDS = 10
+SECRET_FILE_HARDENING_WARNING = (
+    "spark-cli: could not enforce owner-only permissions for a local secret file; "
+    "inspect local access before continuing.\n"
+)
+
+
+def windows_current_user_grantee() -> str:
+    """Resolve a stable icacls grantee for the current user.
+
+    Prefer the OS-reported SID, which is not selected through the process
+    environment and which icacls accepts as `*S-1-...`. A bounded OS login name
+    is a compatibility fallback. Returning an empty grantee is safer than
+    constructing a malformed or attacker-selected grant token.
+    """
     try:
-        os.chmod(path, 0o600)
-    except OSError:
+        whoami = subprocess.run(
+            ["whoami", "/user", "/fo", "csv", "/nh"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=SECRET_FILE_HARDENING_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        whoami = None
+    if whoami is not None and whoami.returncode == 0 and isinstance(whoami.stdout, str):
+        sid = re.search(r"(?<![A-Za-z0-9-])(S-1-\d+(?:-\d+)+)(?![A-Za-z0-9-])", whoami.stdout)
+        if sid:
+            return f"*{sid.group(1)}"
+    try:
+        return (os.getlogin() or "").strip()
+    except (OSError, ValueError):
         pass
-    if os.name != "nt" or not path.exists():
+    return ""
+
+
+def harden_secret_file(path: Any) -> None:
+    normalized_path = secret_input_authority.normalized_secret_file_path(path)
+    failed = False
+    try:
+        os.chmod(normalized_path, 0o600)
+    except OSError:
+        failed = True
+    if os.name != "nt" or not normalized_path.exists():
+        if failed:
+            sys.stderr.write(SECRET_FILE_HARDENING_WARNING)
+        return
+    grantee = windows_current_user_grantee()
+    if not grantee:
+        sys.stderr.write(SECRET_FILE_HARDENING_WARNING)
         return
     try:
-        subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
+        result = subprocess.run(
+            ["icacls", str(normalized_path), "/inheritance:r", "/grant:r", f"{grantee}:F"],
             check=False,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=SECRET_FILE_HARDENING_TIMEOUT_SECONDS,
         )
-    except OSError:
-        pass
+    except (OSError, subprocess.TimeoutExpired):
+        failed = True
+    else:
+        failed = failed or result.returncode != 0
+    if failed:
+        sys.stderr.write(SECRET_FILE_HARDENING_WARNING)
 
 
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
     """Store a secret value. Returns the backend actually used ('keychain' or 'file')."""
     ensure_state_dirs()
-    index = load_secrets_index()
+    if (index := load_secrets_index()) and preferred == "keychain" and index.get(secret_id) == "keychain" and fetch_secret(secret_id) == value:
+        return "keychain"
     if preferred == "keychain" and keychain_available():
         try:
             _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
-            pass
+        except Exception as _store_exc:
+            # Surface the fall-back so the operator notices that the value
+            # landed on disk instead of in the system store. Log only the
+            # exception class name -- the message can echo the value, which
+            # we never want in a log line. The file path it falls back to is
+            # already chmod 0o600 by harden_secret_file below.
+            sys.stderr.write(
+                f"spark-cli: system store write failed "
+                f"(error type: {type(_store_exc).__name__}); "
+                f"falling back to file storage.\n"
+            )
     file_secrets = load_json(SECRETS_FILE_PATH, {})
-    file_secrets[secret_id] = dpapi_protect(value)
+    try:
+        file_secrets[secret_id] = dpapi_protect(value)
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
     save_json(SECRETS_FILE_PATH, file_secrets)
     harden_secret_file(SECRETS_FILE_PATH)
     index[secret_id] = "file"
@@ -1062,10 +1705,12 @@ def fetch_secret(secret_id: str) -> str | None:
     return None
 
 
-def is_telegram_bot_token_secret(secret_id: str) -> bool:
-    return secret_id == "telegram.bot_token" or (
-        secret_id.startswith("telegram.profiles.") and secret_id.endswith(".bot_token")
-    )
+is_telegram_bot_token_secret = secret_input_authority.is_telegram_secret_id
+
+
+def telegram_token_validation_error_detail(error: BaseException) -> str:
+    detail = redact_sensitive_text(str(error))
+    return re.sub(r"/bot[^/\s]+/", "/bot[REDACTED]/", detail, flags=re.IGNORECASE)
 
 
 def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_token") -> dict[str, Any]:
@@ -1088,11 +1733,14 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
             f"Telegram token validation failed for {secret_id}: HTTP {error.code}. "
             "Nothing was changed. Try again, or use --skip-telegram-token-check only for offline development."
         )
-    except (OSError, TimeoutError, json.JSONDecodeError) as error:
+    except (OSError, TimeoutError, json.JSONDecodeError, urllib.error.URLError) as error:
+        safe_detail = telegram_token_validation_error_detail(error)
         raise SystemExit(
-            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}. "
-            "Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
+            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}"
+            + (f" ({safe_detail})" if safe_detail else "")
+            + ". Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
         )
+    payload = secret_input_authority.validated_telegram_response(payload)
     if not payload.get("ok"):
         description = str(payload.get("description") or "token rejected")
         raise SystemExit(
@@ -1122,20 +1770,19 @@ def validate_new_telegram_bot_tokens(args: argparse.Namespace, secret_values: di
 
 def delete_secret(secret_id: str) -> bool:
     index = load_secrets_index()
-    backend = index.pop(secret_id, None)
+    backend = index.get(secret_id)
     removed = False
     if backend == "keychain" and HAS_KEYRING:
-        try:
-            _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
-            removed = True
-        except Exception:
-            pass
+        accounts = [keychain_account(secret_id)]
         if default_home_uses_legacy_keychain():
+            if secret_id not in accounts:
+                accounts.append(secret_id)
+        removed = True
+        for account in accounts:
             try:
-                _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
-                removed = True
+                _keyring.delete_password(KEYCHAIN_SERVICE, account)
             except Exception:
-                pass
+                removed = False
     if backend == "file":
         file_secrets = load_json(SECRETS_FILE_PATH, {})
         if secret_id in file_secrets:
@@ -1143,7 +1790,8 @@ def delete_secret(secret_id: str) -> bool:
             save_json(SECRETS_FILE_PATH, file_secrets)
             harden_secret_file(SECRETS_FILE_PATH)
             removed = True
-    if backend is not None:
+    if removed:
+        index.pop(secret_id, None)
         save_secrets_index(index)
     return removed
 
@@ -1153,7 +1801,7 @@ def list_stored_secrets() -> dict[str, str]:
 
 
 def module_secret_env_bindings(module: Module) -> list[dict[str, str]]:
-    """Return env_var bindings for secrets the module declares in [needs.secrets]."""
+    secret_input_authority.require_module_manifest(module)
     bindings: list[dict[str, str]] = []
     for secret_id in module.needed_secrets:
         definition = module.resolve_secret_definition(secret_id)
@@ -1198,7 +1846,13 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"Configuration error: '{path}' contains invalid JSON at "
+            f"line {exc.lineno}, column {exc.colno}: {exc.msg}."
+        ) from None
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -1207,6 +1861,17 @@ def sha256_bytes(payload: bytes) -> str:
 
 def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
+
+
+def canonical_installer_script_bytes(path: Path) -> bytes:
+    payload = path.read_bytes()
+    if path.suffix.lower() in {".ps1", ".sh"}:
+        payload = payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return payload
+
+
+def installer_script_sha256(path: Path) -> str:
+    return sha256_bytes(canonical_installer_script_bytes(path))
 
 
 def _path_is_reparse_point(path: Path) -> bool:
@@ -1219,10 +1884,36 @@ def _path_is_reparse_point(path: Path) -> bool:
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
+MACOS_TRUSTED_ROOT_ALIASES = {
+    Path("/etc"): Path("/private/etc"),
+    Path("/tmp"): Path("/private/tmp"),
+    Path("/var"): Path("/private/var"),
+}
+
+
+def _canonical_trusted_platform_alias(path: Path) -> Path:
+    if sys.platform != "darwin" or not path.is_absolute() or len(path.parts) < 2:
+        return path
+    alias = Path(path.anchor) / path.parts[1]
+    expected = MACOS_TRUSTED_ROOT_ALIASES.get(alias)
+    if expected is None or not alias.is_symlink():
+        return path
+    try:
+        actual = Path(os.path.realpath(os.fspath(alias)))
+    except OSError:
+        return path
+    if actual != expected:
+        return path
+    return expected.joinpath(*path.parts[2:])
+
+
 def assert_no_linked_write_path(path: Path) -> None:
     expanded = path.expanduser()
-    chain = [*reversed(expanded.parent.parents), expanded.parent]
-    if expanded.exists() or expanded.is_symlink():
+    checked = _canonical_trusted_platform_alias(expanded)
+    chain = [*reversed(checked.parent.parents), checked.parent]
+    if checked.exists() or checked.is_symlink():
+        chain.append(checked)
+    if expanded != checked and (expanded.exists() or expanded.is_symlink()):
         chain.append(expanded)
     for item in chain:
         if not item.exists() and not item.is_symlink():
@@ -1232,8 +1923,14 @@ def assert_no_linked_write_path(path: Path) -> None:
 
 
 def installer_release_pins() -> dict[str, Any]:
-    shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
-    powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    try:
+        shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        shell = ""
+    try:
+        powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        powershell = ""
     return installer_release_pins_from_text(shell, powershell)
 
 
@@ -1288,6 +1985,8 @@ def current_git_commit() -> str:
 
 def local_git_commit_exists(ref: str) -> bool:
     normalized = (ref or "").strip().lower()
+    if INSTALLER_RELEASE_TAG_PATTERN.fullmatch(normalized):
+        return True
     if not GIT_COMMIT_SHA_PATTERN.fullmatch(normalized):
         return False
     try:
@@ -1313,7 +2012,7 @@ def installer_manifest_payload() -> dict[str, Any]:
         "installers": {
             name: {
                 "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
-                "sha256": sha256_file(path),
+                "sha256": installer_script_sha256(path),
             }
             for name, path in INSTALLER_SCRIPT_PATHS.items()
         },
@@ -1351,7 +2050,10 @@ def hosted_installer_checksums() -> dict[str, str]:
         line = line.strip()
         if not line:
             continue
-        digest, relpath = line.split(maxsplit=1)
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        digest, relpath = parts
         checksums[Path(relpath).name] = digest.lower()
     return checksums
 
@@ -1367,7 +2069,9 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
     with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
     parsed = json.loads(payload)
-    return parsed if isinstance(parsed, dict) else {}
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
+    return parsed
 
 
 def installer_ssl_context() -> ssl.SSLContext | None:
@@ -1423,6 +2127,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     hosted_metadata_error = ""
     hosted_release_name = ""
     hosted_release_ref = ""
+    hosted_release_commit = ""
     hosted_release_manifest: dict[str, Any] = {}
     hosted_release_manifest_error = ""
     committed_expected: dict[str, str] = {}
@@ -1439,7 +2144,8 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 else {}
             )
             hosted_release_name = str(spark_cli.get("releaseName", ""))
-            hosted_release_ref = str(spark_cli.get("commit", "")).lower()
+            hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
+            hosted_release_commit = str(spark_cli.get("commit", "")).lower()
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
             hosted_release_manifest_error = str(exc)
         current_ref = current_git_commit()
@@ -1449,6 +2155,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             hosted_source_basis = "installed_checkout"
     local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
     local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
+    local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
     checks.append(
         {
             "name": "local_release_ref_reachable",
@@ -1458,9 +2165,13 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
                 if local_ref_skipped
                 else (
-                    "Installer source commit exists in the local Spark CLI checkout."
+                    (
+                        "Installer source release tag has a valid Spark public release-tag shape."
+                        if local_ref_is_release_tag
+                        else "Installer source commit exists in the local Spark CLI checkout."
+                    )
                     if local_ref_ok
-                    else "Installer source commit is not reachable in the local Spark CLI checkout; a fresh install may fail."
+                    else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
                 )
             ),
         }
@@ -1470,7 +2181,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
         if isinstance(installers, dict) and isinstance(installers.get(name), dict):
             expected = str(installers[name].get("sha256", "")).lower()
         committed_expected[name] = expected
-        actual = sha256_file(path).lower() if path.exists() else ""
+        actual = installer_script_sha256(path).lower() if path.exists() else ""
         local_ok = bool(expected) and actual == expected
         checks.append(
             {
@@ -1499,19 +2210,40 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_hash = sha256_bytes(hosted_payload).lower()
                     hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
                     hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_checksum_ok = (
-                        bool(expected_hosted)
-                        and hosted_hash == expected_hosted
-                        and (expected_hosted == expected or hosted_source_basis == "installed_checkout")
+                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
                     )
                     hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
                     hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
                     hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    detail = (
-                        f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                        if hosted_ok
-                        else f"{url} does not match hosted checksum metadata or expected Spark CLI source pins."
+                    hosted_matches_hosted_release = (
+                        hosted_pins["releaseName"] == hosted_release_name
+                        and hosted_pins["ref"] == hosted_release_ref
                     )
+                    hosted_is_different_release_than_local = (
+                        hosted_source_basis == "committed_manifest"
+                        and bool(hosted_release_name)
+                        and hosted_release_name != expected_hosted_release
+                    )
+                    if hosted_ok:
+                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                    elif (
+                        hosted_metadata_checksum_ok
+                        and not hosted_checksum_ok
+                        and hosted_matches_hosted_release
+                        and hosted_is_different_release_than_local
+                    ):
+                        detail = (
+                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                            "committed installer manifest/source pins. The hosted site may be newer than the local "
+                            "verifier; update Spark CLI or validate from the release commit before calling the "
+                            "hosted copy stale."
+                        )
+                    elif not hosted_metadata_checksum_ok:
+                        detail = f"{url} does not match hosted checksum metadata."
+                    else:
+                        detail = f"{url} does not install the expected Spark CLI source pins."
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
                     hosted_hash = "<fetch failed>"
                     hosted_ok = False
@@ -1561,22 +2293,30 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 if isinstance(hosted_release_manifest.get("sparkCli"), dict)
                 else {}
             )
-            release_ok = spark_cli.get("releaseName") == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            actual_release = str(spark_cli.get("releaseName", ""))
+            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            if release_ok:
+                release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
+            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                release_detail = (
+                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                    "before treating the hosted copy as outdated."
+                )
+            else:
+                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
             checks.append(
                 {
                     "name": "hosted_release_manifest",
                     "ok": release_ok,
                     "expected_release": expected_hosted_release,
-                    "actual_release": str(spark_cli.get("releaseName", "")),
+                    "actual_release": actual_release,
                     "expected_ref": expected_hosted_ref,
                     "actual_ref": hosted_release_ref,
+                    "actual_commit": hosted_release_commit,
                     "expected_source_basis": hosted_source_basis,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": (
-                        "Hosted release manifest has the current release name and expected Spark CLI commit."
-                        if release_ok
-                        else "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-                    ),
+                    "detail": release_detail,
                 }
             )
         try:
@@ -1591,10 +2331,18 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and command_hashes == hosted_expected
                 and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
             )
+            command_hashes_match_hosted = command_hashes == hosted_expected
             commands_detail = "Hosted command metadata matches installer hashes and release pins."
             if not commands_ok:
-                commands_detail = (
-                    "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                    commands_detail = (
+                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                        "checkout's expected release pins. The hosted site may be newer or older than the local "
+                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                    )
+                else:
+                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                commands_detail += (
                     f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
                     f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
                     f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
@@ -1622,16 +2370,37 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "detail": f"Could not fetch hosted command metadata: {exc}",
                 }
             )
+    hosted_release: dict[str, Any] | None = None
+    if hosted:
+        hosted_release = {
+            "release": hosted_release_name,
+            "ref": hosted_release_ref,
+            "commit": hosted_release_commit or hosted_release_ref,
+            "expected_release": expected_hosted_release,
+            "expected_ref": expected_hosted_ref,
+            "expected_commit": expected_hosted_ref,
+            "source_basis": hosted_source_basis,
+            "verified_at": timestamp_now(),
+            "fresh": bool(
+                hosted_release_name
+                and hosted_release_ref
+                and hosted_release_name == expected_hosted_release
+                and hosted_release_ref == expected_hosted_ref
+            ),
+        }
     try:
         manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
     except ValueError:
         manifest_label = str(INSTALLER_MANIFEST_PATH)
-    return {
+    payload: dict[str, Any] = {
         "ok": all(check["ok"] for check in checks),
         "summary": "Spark installer integrity verification",
         "manifest": manifest_label,
         "checks": checks,
     }
+    if hosted_release is not None:
+        payload["hosted_release"] = hosted_release
+    return payload
 
 
 def collect_module_provenance_payload(
@@ -1661,18 +2430,44 @@ def collect_module_provenance_payload(
     }
 
 
+REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
+REMOTE_GIT_REF_ATTEMPTS = 2
+
+
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    result = subprocess.run(
-        git_command("ls-remote", normalize_git_url(source), remote_ref),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    is_tag_ref = remote_ref.startswith("refs/tags/") and not remote_ref.endswith("^{}")
+    lookup_ref = f"{remote_ref}^{{}}" if is_tag_ref else remote_ref
+    lookup_refs = [lookup_ref, remote_ref] if lookup_ref != remote_ref else [remote_ref]
+    command = git_ls_remote_command(source, *lookup_refs)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+            break
+        except subprocess.TimeoutExpired as error:
+            last_timeout = error
+        except OSError as error:
+            raise RuntimeError(
+                f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
+            ) from error
+    else:
+        raise RuntimeError(
+            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+        ) from last_timeout
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
-    first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+    lines = result.stdout.splitlines()
+    first_line = next(
+        (line for line in lines if line.endswith(f"\t{lookup_ref}")),
+        lines[0] if lines else "",
+    )
     commit = first_line.split()[0].strip().lower() if first_line else ""
     if not validate_commit_pin(commit):
         raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
@@ -1702,14 +2497,7 @@ def collect_registry_pin_drift_payload(
         remote_ref = str(metadata.get("verify_ref") or metadata.get("release_ref") or "HEAD").strip() or "HEAD"
         try:
             validate_commit_pin(pinned)
-            try:
-                remote = resolver(source, remote_ref).strip().lower()
-            except TypeError:
-                if remote_ref != "HEAD":
-                    raise
-                remote = resolver(source).strip().lower()
-            validate_commit_pin(remote)
-        except (RuntimeError, SystemExit) as error:
+        except SystemExit as error:
             checks.append(
                 {
                     "name": str(name),
@@ -1718,6 +2506,46 @@ def collect_registry_pin_drift_payload(
                     "remote_ref": remote_ref,
                     "remote_head": "",
                     "ok": False,
+                    "verified": False,
+                    "verification_status": "invalid_pin",
+                    "detail": f"Could not verify remote {remote_ref}: {error}",
+                }
+            )
+            continue
+        try:
+            try:
+                remote = resolver(source, remote_ref).strip().lower()
+            except TypeError:
+                if remote_ref != "HEAD":
+                    raise
+                remote = resolver(source).strip().lower()
+            validate_commit_pin(remote)
+        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+            if str(metadata.get("visibility") or "").strip().lower() == "private":
+                checks.append(
+                    {
+                        "name": str(name),
+                        "source": source,
+                        "pinned_commit": pinned,
+                        "remote_ref": remote_ref,
+                        "remote_head": "",
+                        "ok": True,
+                        "verified": False,
+                        "verification_status": "private_source_unavailable",
+                        "detail": f"Could not verify remote {remote_ref} without private-source credentials: {error}",
+                    }
+                )
+                continue
+            checks.append(
+                {
+                    "name": str(name),
+                    "source": source,
+                    "pinned_commit": pinned,
+                    "remote_ref": remote_ref,
+                    "remote_head": "",
+                    "ok": False,
+                    "verified": False,
+                    "verification_status": "remote_unavailable",
                     "detail": f"Could not verify remote {remote_ref}: {error}",
                 }
             )
@@ -1732,37 +2560,21 @@ def collect_registry_pin_drift_payload(
                 "remote_ref": remote_ref,
                 "remote_head": remote,
                 "ok": ok,
+                "verified": True,
+                "verification_status": "verified" if ok else "pin_drift",
                 "detail": f"registry pin matches {remote_label}" if ok else f"registry pin lags or diverges from {remote_label}",
             }
         )
     return {
         "ok": all(check["ok"] for check in checks),
         "summary": "Spark registry pin drift verification",
+        "unverified": sum(1 for check in checks if not check.get("verified", True)),
         "checks": checks,
     }
 
 
 def atomic_write_json(path: Path, payload: Any) -> None:
-    assert_no_linked_write_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
-    try:
-        temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-        os.replace(temp_path, path)
-        try:
-            os.chmod(path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-    finally:
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except OSError:
-            pass
+    atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
 
 
 def save_json(path: Path, payload: Any) -> None:
@@ -1771,7 +2583,14 @@ def save_json(path: Path, payload: Any) -> None:
 
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
-    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SystemExit("Module manifest not found: module manifest") from exc
+    except PermissionError as exc:
+        raise SystemExit("Permission denied reading module manifest: module manifest") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"Invalid TOML in module manifest: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -1807,6 +2626,33 @@ def save_pending_setup_state(stage: str, detail: str, setup_state: dict[str, Any
     save_json(SETUP_PENDING_PATH, pending)
 
 
+def save_paused_setup_refresh_state(stage: str, detail: str, setup_state: dict[str, Any] | None = None) -> None:
+    bundle = "telegram-starter"
+    if isinstance(setup_state, dict):
+        bundle = str(setup_state.get("bundle") or bundle)
+    pending: dict[str, Any] = {
+        "event": "setup_refresh_paused",
+        "updated_at": timestamp_now(),
+        "stage": stage,
+        "detail": detail,
+        "ready": [
+            "CLI upgrade complete",
+            "Existing runtime can keep running with the current setup",
+        ],
+        "still_needed": [
+            "Secure secret backend before Spark rewrites stored secrets",
+        ],
+        "next": f"spark setup {bundle} --resume",
+        "safe_to_continue": True,
+    }
+    if isinstance(setup_state, dict):
+        pending["bundle"] = setup_state.get("bundle")
+        pending["modules"] = setup_state.get("modules")
+        pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
+        pending["onboarding_session"] = setup_state.get("onboarding_session")
+    save_json(SETUP_PENDING_PATH, pending)
+
+
 def clear_pending_setup_state() -> None:
     try:
         SETUP_PENDING_PATH.unlink(missing_ok=True)
@@ -1819,6 +2665,29 @@ def load_pending_setup_state() -> dict[str, Any]:
         return {}
     pending = load_json(SETUP_PENDING_PATH, {})
     return pending if isinstance(pending, dict) else {}
+
+
+def pending_setup_refresh_status(pending: dict[str, Any]) -> dict[str, Any] | None:
+    if not pending:
+        return None
+    bundle = str(pending.get("bundle") or "telegram-starter")
+    detail = str(pending.get("detail") or "").strip()
+    secure_secret_gate = "File secret backend is disabled" in detail
+    if secure_secret_gate:
+        summary = "Setup refresh is paused; Spark needs a secure secret backend before it rewrites stored secrets."
+        safe_to_continue = True
+    else:
+        summary = "Setup is pending and needs attention before Spark is fully configured."
+        safe_to_continue = False
+    return {
+        "status": "paused" if secure_secret_gate else "pending",
+        "safe_to_continue": safe_to_continue,
+        "summary": summary,
+        "detail": redact_shareable_text(detail),
+        "next": str(pending.get("next") or f"spark setup {bundle} --resume"),
+        "bundle": bundle,
+        "updated_at": pending.get("updated_at"),
+    }
 
 
 def print_setup_failure_truth_screen(detail: str) -> None:
@@ -1942,7 +2811,9 @@ def maybe_offer_first_message_repair(result: dict[str, Any], interactive: bool) 
 def read_clipboard_text() -> str:
     commands: list[list[str]] = []
     if sys.platform == "win32":
-        commands.append(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"])
+        utf8_clipboard = "$OutputEncoding = [Console]::OutputEncoding = " \
+            "[System.Text.UTF8Encoding]::new($false); Get-Clipboard -Raw"
+        commands.append(["powershell", "-NoProfile", "-Command", utf8_clipboard])
     elif sys.platform == "darwin":
         commands.append(["pbpaste"])
     else:
@@ -1958,9 +2829,15 @@ def read_clipboard_text() -> str:
                 commands.append([path])
 
     for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        try:
+            result = subprocess.run(command, capture_output=True, text=False, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
         if result.returncode == 0:
-            value = result.stdout.strip()
+            try:
+                value = result.stdout.decode("utf-8").strip()
+            except (AttributeError, UnicodeDecodeError):
+                continue
             if value:
                 return value
     raise SystemExit(
@@ -1969,9 +2846,9 @@ def read_clipboard_text() -> str:
     )
 
 
-def extract_telegram_bot_token(value: str) -> str:
+def extract_telegram_bot_token(value: Any) -> str:
     """Return a Telegram bot token, tolerating copied BotFather surrounding text."""
-    stripped = value.strip().strip("\"'")
+    stripped = secret_input_authority.require_telegram_token_text(value).strip().strip("\"'")
     if TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(stripped):
         return stripped
     matches = TELEGRAM_BOT_TOKEN_PATTERN.findall(stripped)
@@ -1979,7 +2856,7 @@ def extract_telegram_bot_token(value: str) -> str:
         return matches[0]
     if len(matches) > 1:
         raise SystemExit("Found more than one Telegram bot token. Copy or paste only the token for the bot you want to connect.")
-    return stripped
+    raise SystemExit("That does not look like a Telegram bot token. Copy the token from BotFather and try again.")
 
 
 def telegram_token_repair_command(secret_id: str) -> str:
@@ -1989,6 +2866,157 @@ def telegram_token_repair_command(secret_id: str) -> str:
         profile = secret_id[len(prefix) : -len(suffix)]
         return f"spark telegram connect {profile}"
     return "spark telegram connect"
+
+
+def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> bool:
+    try:
+        candidate = secret_path.expanduser().resolve(strict=False)
+        root = spark_home.expanduser().resolve(strict=False)
+        candidate_text = os.path.normcase(str(candidate))
+        root_text = os.path.normcase(str(root))
+        return os.path.commonpath([candidate_text, root_text]) == root_text
+    except (OSError, ValueError):
+        return False
+
+
+MAX_SECRET_FILE_BYTES = 1024 * 1024
+SECRET_FILE_READ_ERROR = "Secret file could not be read safely from SPARK_HOME."
+
+
+def _resolved_secret_file_parts(
+    secret_path: Path,
+    spark_home: Path,
+) -> tuple[Path, tuple[str, ...], tuple[int, int]]:
+    try:
+        root = spark_home.expanduser().resolve(strict=True)
+        candidate = secret_path.expanduser()
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
+        resolved = candidate.resolve(strict=True)
+        relative = resolved.relative_to(root)
+        root_metadata = root.stat()
+    except (OSError, RuntimeError, ValueError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+    if not relative.parts:
+        raise SystemExit(SECRET_FILE_READ_ERROR)
+    return root, relative.parts, (root_metadata.st_dev, root_metadata.st_ino)
+
+
+def _read_bounded_secret_fd(fd: int) -> str:
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_SECRET_FILE_BYTES:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        chunks: list[bytes] = []
+        remaining = MAX_SECRET_FILE_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > MAX_SECRET_FILE_BYTES:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        return payload.decode("utf-8").strip()
+    except SystemExit:
+        raise
+    except (OSError, UnicodeError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+
+
+def _read_secret_file_posix(
+    root: Path,
+    relative_parts: tuple[str, ...],
+    expected_root_identity: tuple[int, int],
+) -> str:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    if not nofollow or not directory or os.open not in os.supports_dir_fd:
+        raise SystemExit(SECRET_FILE_READ_ERROR)
+    base_flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    directory_fds: list[int] = []
+    file_fd: int | None = None
+    try:
+        directory_fds.append(os.open(root, base_flags | directory))
+        opened_root = os.fstat(directory_fds[-1])
+        if (opened_root.st_dev, opened_root.st_ino) != expected_root_identity:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        for part in relative_parts[:-1]:
+            directory_fds.append(os.open(part, base_flags | directory, dir_fd=directory_fds[-1]))
+        file_fd = os.open(relative_parts[-1], base_flags, dir_fd=directory_fds[-1])
+        return _read_bounded_secret_fd(file_fd)
+    except SystemExit:
+        raise
+    except OSError:
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        for directory_fd in reversed(directory_fds):
+            os.close(directory_fd)
+
+
+def _windows_final_path_for_fd(fd: int) -> Path:
+    try:
+        import msvcrt  # type: ignore
+
+        handle = msvcrt.get_osfhandle(fd)
+        kernel32 = ctypes.windll.kernel32
+        final_path = kernel32.GetFinalPathNameByHandleW
+        final_path.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong]
+        final_path.restype = ctypes.c_ulong
+        native_handle = ctypes.c_void_p(handle)
+        size = final_path(native_handle, None, 0, 0)
+        if not size:
+            raise OSError("GetFinalPathNameByHandleW failed")
+        buffer = ctypes.create_unicode_buffer(size + 1)
+        written = final_path(native_handle, buffer, len(buffer), 0)
+        if not written or written >= len(buffer):
+            raise OSError("GetFinalPathNameByHandleW returned an invalid path")
+        value = buffer.value
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+        return Path(value)
+    except (AttributeError, ImportError, OSError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+
+
+def _read_secret_file_windows(root: Path, relative_parts: tuple[str, ...]) -> str:
+    candidate = root.joinpath(*relative_parts)
+    chain = [root]
+    current = root
+    for part in relative_parts:
+        current = current / part
+        chain.append(current)
+    if any(_path_is_reparse_point(item) for item in chain):
+        raise SystemExit(SECRET_FILE_READ_ERROR)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+    fd: int | None = None
+    try:
+        fd = os.open(candidate, flags)
+        opened_path = _windows_final_path_for_fd(fd)
+        opened_text = os.path.normcase(os.path.normpath(str(opened_path)))
+        root_text = os.path.normcase(os.path.normpath(str(root)))
+        if os.path.commonpath([opened_text, root_text]) != root_text:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        return _read_bounded_secret_fd(fd)
+    except SystemExit:
+        raise
+    except (OSError, ValueError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def read_secret_file_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> str:
+    root, relative_parts, root_identity = _resolved_secret_file_parts(secret_path, spark_home)
+    if os.name == "nt":
+        return _read_secret_file_windows(root, relative_parts)
+    return _read_secret_file_posix(root, relative_parts, root_identity)
 
 
 def resolve_secret_input(value: str) -> str:
@@ -2007,10 +3035,10 @@ def resolve_secret_input(value: str) -> str:
         secret_path = stripped[6:].strip()
         if not secret_path:
             raise SystemExit("Invalid secret reference: @file: requires a path.")
-        try:
-            return Path(secret_path).expanduser().read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
+        path = Path(secret_path)
+        if not secret_file_path_inside_spark_home(path, SPARK_HOME):
+            raise SystemExit("Invalid secret reference: @file: paths must stay inside SPARK_HOME.")
+        return read_secret_file_inside_spark_home(path, SPARK_HOME)
     return value
 
 
@@ -2039,7 +3067,7 @@ def collect_secret_requirements(modules: list[Module]) -> dict[str, dict[str, An
                 },
             )
             requirement["modules"].append(module.name)
-            if definition.get("required", False):
+            if definition.get("required", True):
                 requirement["required"] = True
             if definition.get("env_var") and not requirement.get("env_var"):
                 requirement["env_var"] = definition.get("env_var")
@@ -2115,6 +3143,16 @@ def ensure_generated_setup_secrets(secret_values: dict[str, str], modules: list[
     needs_relay_secret = any("telegram.relay_secret" in module.needed_secrets for module in modules)
     if needs_relay_secret and not values.get("telegram.relay_secret"):
         values["telegram.relay_secret"] = py_secrets.token_urlsafe(32)
+    # Governor HMAC signing key: generate once and persist owner-only so the spawner
+    # (signer) and builder/harness (verifier) share the SAME key. When this key is
+    # present the harness enforces signature verification automatically; when it is
+    # absent (older key-less installs) signing stays off, so this is additive and
+    # never breaks an existing key-less runtime.
+    existing_hmac = (values.get(GOVERNOR_HMAC_SECRET_ID) or "").strip() or (fetch_secret(GOVERNOR_HMAC_SECRET_ID) or "").strip()
+    if existing_hmac:
+        values[GOVERNOR_HMAC_SECRET_ID] = existing_hmac
+    else:
+        values[GOVERNOR_HMAC_SECRET_ID] = py_secrets.token_hex(32)
     return values
 
 
@@ -2153,6 +3191,16 @@ def remember_setup_secret_key(secret_id: str) -> None:
     keys.add(secret_id)
     setup_state["secret_keys"] = sorted(keys)
     save_json(CONFIG_PATH, setup_state)
+
+
+def persist_governor_hmac_secret(secret_values: dict[str, str]) -> None:
+    """Store the Governor HMAC signing key owner-only and remember it as a setup key.
+    No-op when no key is in play (older key-less installs stay unsigned)."""
+    value = (secret_values.get(GOVERNOR_HMAC_SECRET_ID) or "").strip()
+    if not value:
+        return
+    store_secret(GOVERNOR_HMAC_SECRET_ID, value, preferred="keychain")
+    remember_setup_secret_key(GOVERNOR_HMAC_SECRET_ID)
 
 
 def ensure_runtime_telegram_relay_secret(modules: Iterable[Module]) -> None:
@@ -2325,9 +3373,32 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
     except OSError:
         pass
 
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp_path: Path | None = None
+    temp_fd: int | None = None
     try:
-        temp_path.write_text(content, encoding="utf-8")
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0)
+        )
+        for _attempt in range(32):
+            temp_path = path.with_name(
+                f".{path.name}.{os.getpid()}.{py_secrets.token_hex(16)}.tmp"
+            )
+            try:
+                temp_fd = os.open(temp_path, flags, PRIVATE_FILE_MODE)
+                break
+            except FileExistsError:
+                continue
+        if temp_fd is None:
+            raise FileExistsError("Could not claim a unique runtime-shim temporary file.")
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
         if executable and os.name != "nt":
             temp_path.chmod(0o755)
         os.replace(temp_path, path)
@@ -2336,8 +3407,10 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
             return
         raise
     finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
         try:
-            if temp_path.exists():
+            if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
         except OSError:
             pass
@@ -2357,7 +3430,7 @@ def provider_secret_env_blocklist() -> set[str]:
     blocked = {
         key
         for key in STATIC_PROVIDER_ENV_BLOCKLIST
-        if any(marker in key.upper() for marker in ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+        if managed_secret_runtime.is_secret_env_name(key)
     }
     for spec in LLM_PROVIDER_ENV.values():
         value = spec.get("api_key_env")
@@ -2394,11 +3467,11 @@ def resolve_policy_path(path: Path) -> Path:
 
 def policy_home_path(home: Path | None = None) -> Path:
     if home is not None:
-        return resolve_policy_path(home)
+        return home.expanduser()
     try:
-        return resolve_policy_path(Path.home())
+        return Path.home().expanduser()
     except RuntimeError:
-        return resolve_policy_path(SPARK_HOME.parent)
+        return SPARK_HOME.parent.expanduser()
 
 
 def policy_path_is_same_or_child(candidate: Path, parent: Path) -> bool:
@@ -2414,7 +3487,12 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
     denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
     if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        posix_denied = [Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES]
+        # Do not deny writes inside SPARK_HOME even when SPARK_HOME lives under a
+        # denied prefix such as /root.  Excluding SPARK_HOME lets the CLI manage
+        # its own modules and configs on root-user / headless-server installs.
+        posix_denied = [p for p in posix_denied if not policy_path_is_same_or_child(SPARK_HOME, p)]
+        denied.extend(posix_denied)
     else:
         path_type = home_path.__class__
         appdata = os.environ.get("APPDATA")
@@ -2427,21 +3505,35 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
             value = os.environ.get(key)
             if value:
                 denied.append(path_type(value))
-    return [resolve_policy_path(path) for path in denied]
+    return denied
 
 
 def write_denied_paths(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
-    return [resolve_policy_path(home_path / relative) for relative in WRITE_DENIED_HOME_PATHS]
+    return [home_path / relative for relative in WRITE_DENIED_HOME_PATHS]
 
 
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
     candidate = resolve_policy_path(path)
+    secrets_file = resolve_policy_path(SECRETS_FILE_PATH)
+    if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(
+        os.path.normpath(os.fspath(secrets_file))
+    ):
+        return True, str(secrets_file)
     for denied_path in write_denied_paths():
         if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
             return True, str(denied_path)
+    spark_home = resolve_policy_path(SPARK_HOME)
+    root_home = resolve_policy_path(Path("/root"))
+    root_owned_spark_state = (
+        sys.platform != "win32"
+        and policy_path_is_same_or_child(candidate, spark_home)
+        and policy_path_is_same_or_child(spark_home, root_home)
+    )
     for denied_prefix in write_denied_prefixes():
         if policy_path_is_same_or_child(candidate, denied_prefix):
+            if root_owned_spark_state and resolve_policy_path(denied_prefix) == root_home:
+                continue
             return True, str(denied_prefix)
     return False, ""
 
@@ -2474,7 +3566,7 @@ def write_boundary_env(base: dict[str, str]) -> dict[str, str]:
 
 def shell_command_env(*, filtered: bool = False) -> dict[str, str]:
     env = safe_parent_env() if filtered else os.environ.copy()
-    managed_node_dir = SPARK_HOME / "tools" / "node-v22.18.0-win-x64"
+    managed_node_dir = managed_node_windows_dir(SPARK_HOME)
     if os.name == "nt" and managed_node_dir.exists():
         env["PATH"] = str(managed_node_dir) + os.pathsep + env.get("PATH", "")
     python_path = sys.executable if os.path.exists(sys.executable) else resolve_runtime_binary("python")
@@ -2705,15 +3797,7 @@ def prompt_for_secret(secret_id: str, requirement: dict[str, Any]) -> str:
 
 
 def fetch_generated_secret_value(requirement: dict[str, Any]) -> str | None:
-    env_var = requirement.get("env_var")
-    if not env_var:
-        return None
-    for module_name in requirement.get("modules", []):
-        values = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
-        value = values.get(str(env_var))
-        if value:
-            return value
-    return None
+    return managed_secret_runtime.fetch_generated_secret_value(sys.modules[__name__], requirement)
 
 
 def run_setup_wizard(
@@ -2760,6 +3844,16 @@ def telegram_profile_should_autostart(profile_state: Any) -> bool:
     return not (isinstance(profile_state, dict) and profile_state.get("autostart") is False)
 
 
+def telegram_profile_has_startable_token(profile: str | None) -> bool:
+    normalized = normalize_telegram_profile(profile)
+    if telegram_profile_is_default(normalized):
+        path = MODULE_CONFIG_DIR / "spark-telegram-bot.env"
+    else:
+        path = MODULE_CONFIG_DIR / f"spark-telegram-bot.{normalized}.env"
+    values = read_generated_env(path)
+    return bool(values.get("BOT_TOKEN") or values.get("TELEGRAM_BOT_TOKEN"))
+
+
 def primary_telegram_profile(setup_state: dict[str, Any] | None = None) -> str:
     state = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
     if not isinstance(state, dict):
@@ -2789,7 +3883,7 @@ def telegram_profile_relay_port(
                 relay_port = int(profile_state.get("relay_port", 0))
             except (TypeError, ValueError):
                 relay_port = 0
-            if relay_port > 0:
+            if 0 < relay_port <= 65535:
                 return relay_port
     return default
 
@@ -2866,33 +3960,35 @@ def spark_builder_home() -> Path:
 
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
-    lines = [f"{key}={value}" for key, value in values.items()]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Generated module env files may hold legacy control-plane keys
+    # (SPARK_UI_API_KEY, EVENTS_API_KEY, MCP_API_KEY) in plaintext. Harden them to
+    # owner-only from the first byte and replace them atomically so a reader never
+    # observes a partial file. The helper also refuses linked write paths and breaks
+    # inherited ACL access on Windows.
+    atomic_write_text(path, serialize_env_file(values))
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
     if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = value
-    return values
+        return {}
+    return parse_env_file_bytes(path.read_bytes())
 
 
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
     env = shell_command_env(filtered=True)
-    env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module))))
-    if module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile):
-        env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module, profile))))
-    env.update(keychain_env_for_module(module))
-    if module.name == "spark-telegram-bot":
-        env.update(keychain_env_for_telegram_profile(profile))
+    managed_secret_runtime.apply_managed_secret_runtime_env(sys.modules[__name__], module, profile, env)
+    env.update(resolve_runtime_provider_secret_env(module.name, env, LLM_PROVIDER_ENV, fetch_secret))
     return write_boundary_env(env)
+
+
+def module_healthcheck_env(module: Module, profile: str | None = None) -> dict[str, str]:
+    env = module_runtime_env(module, profile)
+    prepend_pythonpath(env, [module.path / "src"])
+    return env
+
+
+OPENAI_DEFAULT_MODEL = "gpt-5.6-sol"
+CODEX_DEFAULT_MODEL = "gpt-5.6-sol"
 
 
 LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
@@ -2957,7 +4053,7 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
         "base_url_default": "https://api.openai.com/v1",
         "model_arg": "openai_model",
         "model_env": "OPENAI_MODEL",
-        "model_default": "gpt-5.5",
+        "model_default": OPENAI_DEFAULT_MODEL,
         "bot_provider": "openai",
     },
     "anthropic": {
@@ -2994,7 +4090,7 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     "codex": {
         "model_arg": "codex_model",
         "model_env": "CODEX_MODEL",
-        "model_default": "gpt-5.5",
+        "model_default": CODEX_DEFAULT_MODEL,
         "bot_provider": "codex",
     },
     "not_configured": {
@@ -3006,6 +4102,17 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
 }
 
 LLM_PROVIDER_CHOICES = sorted(provider for provider in LLM_PROVIDER_ENV if provider != "not_configured")
+LLM_DOCTOR_DIRECT_PROVIDER_CHOICES = (
+    "anthropic",
+    "codex",
+    "huggingface",
+    "kimi",
+    "minimax",
+    "ollama",
+    "openai",
+    "openrouter",
+    "zai",
+)
 LLM_ROLES = ("chat", "builder", "memory", "mission")
 LLM_PROVIDER_WIZARD_ORDER = ("codex", "anthropic", "zai", "kimi", "openrouter", "huggingface", "minimax", "lmstudio", "ollama", "openai")
 LLM_ROLE_LABELS = {
@@ -3038,19 +4145,21 @@ LLM_PROVIDER_AUTH_HINTS = {
     "minimax": "MINIMAX_API_KEY",
     "ollama": "local Ollama server",
 }
+CODEX_REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+CODEX_CLIENT_CONFIG_KEYS = ("model", "model_reasoning_effort", "service_tier")
 LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
     "codex": {
         "lane": "paid/subscription",
         "best_for": "Best first pick if you already use OpenAI Codex or ChatGPT. Uses the OpenAI Codex CLI sign-in path instead of asking for an OpenAI API key.",
-        "recommended_models": ["gpt-5.5"],
+        "recommended_models": [CODEX_DEFAULT_MODEL],
         "getting_started": "Install OpenAI Codex CLI, sign in with `codex login`, then run `spark setup --llm-provider codex`.",
         "notes": "This is the OAuth-style route for OpenAI Codex and ChatGPT users. No OpenAI API key copy-paste is needed.",
     },
     "openai": {
         "lane": "api/paid",
         "best_for": "OpenAI API users who specifically want an API-key route instead of OpenAI Codex CLI sign-in.",
-        "recommended_models": ["gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"],
-        "getting_started": "Create an OpenAI API key, then run `spark setup --llm-provider openai --openai-api-key <key>`.",
+        "recommended_models": [OPENAI_DEFAULT_MODEL, "gpt-5.6-terra", "gpt-5.6-luna"],
+        "getting_started": "Create and copy an OpenAI API key, then run `spark setup --llm-provider openai`; type @clipboard when Spark asks.",
         "notes": "Most non-technical ChatGPT users should start with `codex`; this route is for API billing/accounts.",
     },
     "anthropic": {
@@ -3064,35 +4173,35 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
         "lane": "api/paid gateway",
         "best_for": "Trying many commercial/open models behind one API key.",
         "recommended_models": ["openai/gpt-5.5", "anthropic/claude-sonnet-4"],
-        "getting_started": "Create an OpenRouter key, then run `spark setup --llm-provider openrouter --openrouter-api-key <key>`.",
+        "getting_started": "Create and copy an OpenRouter key, then run `spark setup --llm-provider openrouter`; type @clipboard when Spark asks.",
         "notes": "Good if you want one billing/gateway surface and model fallback experiments.",
     },
     "zai": {
         "lane": "api/paid",
         "best_for": "Strong API-key path for users who already have Z.AI GLM access and want one provider for Agent and Mission.",
         "recommended_models": ["glm-5.1"],
-        "getting_started": "Create a Z.AI GLM key, then run `spark setup --llm-provider zai --zai-api-key <key>`.",
+        "getting_started": "Create and copy a Z.AI GLM key, then run `spark setup --llm-provider zai`; type @clipboard when Spark asks.",
         "notes": "Good default when you already have a Z.AI GLM key. Spark keeps this explicit so old Ollama/local settings cannot hijack the route.",
     },
     "kimi": {
         "lane": "api/paid",
         "best_for": "Moonshot/Kimi users who want an OpenAI-compatible Kimi route for Agent and Mission.",
         "recommended_models": ["kimi-k2.6", "moonshot-v1-128k"],
-        "getting_started": "Create a Moonshot/Kimi key, then run `spark setup --llm-provider kimi --kimi-api-key <key>`.",
+        "getting_started": "Create and copy a Moonshot/Kimi key, then run `spark setup --llm-provider kimi`; type @clipboard when Spark asks.",
         "notes": "Uses Moonshot's OpenAI-compatible endpoint at https://api.moonshot.ai/v1. You can override the model with --kimi-model.",
     },
     "minimax": {
         "lane": "api/paid",
         "best_for": "MiniMax users who already have a MiniMax API key and want an OpenAI-compatible route.",
         "recommended_models": ["MiniMax-M2.7"],
-        "getting_started": "Create a MiniMax key, then run `spark setup --llm-provider minimax --minimax-api-key <key>`.",
+        "getting_started": "Create and copy a MiniMax key, then run `spark setup --llm-provider minimax`; type @clipboard when Spark asks.",
         "notes": "Best as a choose-your-provider route, not a forced default.",
     },
     "huggingface": {
         "lane": "api/token gateway",
         "best_for": "Trying hosted open models through Hugging Face's OpenAI-compatible router.",
         "recommended_models": ["google/gemma-4-26B-A4B-it:fastest", "google/gemma-4-31B-it:fastest"],
-        "getting_started": "Create a Hugging Face token, then run `spark setup --llm-provider huggingface --huggingface-api-key <key>`.",
+        "getting_started": "Create and copy a Hugging Face token, then run `spark setup --llm-provider huggingface`; type @clipboard when Spark asks.",
         "notes": "Gemma 4 26B is the chat default; 31B is the heavier mission recommendation.",
     },
     "lmstudio": {
@@ -3147,6 +4256,7 @@ def describe_llm_provider_setup(provider: str) -> str:
 
 def provider_recommendations_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "summary": "Spark LLM recommendations",
         "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
         "paths": {
@@ -3255,7 +4365,7 @@ def prompt_for_provider_choice(prompt: str, default: str) -> str | None:
         return "not_configured"
     provider = provider_by_number.get(answer, answer)
     if provider not in LLM_PROVIDER_CHOICES:
-        print(f"  Unknown provider `{answer}`.")
+        print(f"  Unknown provider `{answer}`. Known providers: {', '.join(LLM_PROVIDER_CHOICES)}.")
         return None
     return provider
 
@@ -3273,7 +4383,7 @@ def prompt_for_provider_choice_from(prompt: str, default: str, options: Iterable
         return "not_configured"
     provider = provider_by_number.get(answer, answer)
     if provider not in ordered:
-        print(f"  Unknown provider `{answer}`.")
+        print(f"  Unknown provider `{answer}`. Pick one of: {', '.join(ordered)}.")
         return None
     return provider
 
@@ -3300,7 +4410,11 @@ def prompt_for_provider_role_mode(default_provider: str) -> str:
         return "mission"
     if answer in {"3", "both", "custom", "agent"}:
         return "custom"
-    print(f"  Unknown layout `{answer}`. Using the same provider for Agent and Mission.")
+    print(
+        f"  Unknown layout `{answer}`. "
+        "Pick one of: 1/same, 2/mission, 3/custom. "
+        "Using the same provider for Agent and Mission."
+    )
     return "same"
 
 
@@ -3380,7 +4494,11 @@ def prompt_for_simple_provider_choice(default_provider: str) -> str | None:
         return provider
     if answer in LLM_PROVIDER_CHOICES:
         return answer
-    print(f"  Unknown provider path `{answer}`.")
+    print(
+        f"  Unknown provider path `{answer}`. "
+        "Pick one of: 1/codex, 2/claude, 3/api, 4/local, 5/skip; "
+        f"or type a provider name directly: {', '.join(LLM_PROVIDER_CHOICES)}."
+    )
     return None
 
 
@@ -3490,17 +4608,23 @@ def openai_base_url_kind(base_url: str | None) -> str:
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
     default_provider = resolve_llm_provider(args, secret_values)
     agent_provider = getattr(args, "agent_llm_provider", None)
+    chat_provider = getattr(args, "chat_llm_provider", None)
+    effective_default = (
+        str(chat_provider)
+        if chat_provider and not agent_provider and default_provider == "not_configured"
+        else default_provider
+    )
     roles: dict[str, str] = {}
     for role in LLM_ROLES:
         explicit = getattr(args, f"{role}_llm_provider", None)
         if explicit:
             roles[role] = str(explicit)
         elif role == "mission":
-            roles[role] = default_mission_llm_provider(default_provider)
+            roles[role] = default_mission_llm_provider(effective_default)
         elif agent_provider:
             roles[role] = str(agent_provider)
         else:
-            roles[role] = default_provider
+            roles[role] = effective_default
     return roles
 
 
@@ -3509,20 +4633,13 @@ def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
         return "not_configured"
     spec = LLM_PROVIDER_ENV[provider]
     api_key_env = spec.get("api_key_env")
-    if api_key_env and env.get(api_key_env):
-        return "api_key"
-    if provider == "codex" and detect_codex_cli()["present"]:
-        return "codex_oauth"
-    if provider == "openai":
-        base_kind = openai_base_url_kind(env.get("OPENAI_BASE_URL"))
-        if base_kind == "local":
-            return "local"
-        return "not_configured"
-    if provider == "anthropic" and detect_claude_code()["present"]:
-        return "claude_oauth"
-    if provider in {"lmstudio", "ollama"}:
-        return "local"
-    return "not_configured"
+    return effective_provider_auth_mode(
+        provider,
+        api_key_configured=bool(api_key_env and env.get(api_key_env)),
+        base_url_kind=openai_base_url_kind(env.get("OPENAI_BASE_URL")) if provider == "openai" else "default",
+        codex_cli_present=provider == "codex" and detect_codex_cli()["present"],
+        claude_cli_present=provider == "anthropic" and detect_claude_code()["present"],
+    )
 
 
 def build_llm_env(args: argparse.Namespace, secret_values: dict[str, str]) -> tuple[str, dict[str, str]]:
@@ -3651,12 +4768,11 @@ HOSTED_SPAWNER_PARENT_ENV_KEYS = (
     "SPARK_HOSTED_PRIVATE_PREVIEW",
     "SPARK_WORKSPACE_ID",
     "SPARK_UI_API_KEY",
-    "SPARK_BRIDGE_API_KEY",
     "SPARK_ALLOWED_HOSTS",
 )
 
 
-def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str]) -> dict[str, dict[str, str]]:
+def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str], existing_module_envs: dict[str, dict[str, str]] | None = None) -> dict[str, dict[str, str]]:
     gateway = modules_by_name["spark-telegram-bot"]
     spawner = modules_by_name["spawner-ui"]
     builder = modules_by_name["spark-intelligence-builder"]
@@ -3666,11 +4782,16 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     builder_home = spark_builder_home()
     _, llm_env = build_llm_env(args, secret_values)
     relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
+    bridge_api_key = resolve_shared_spawner_bridge_api_key(
+        existing_module_envs or {},
+        explicit=managed_secret_runtime.setup_bridge_explicit(sys.modules[__name__]),
+        forbidden_secrets=(relay_secret, *secret_values.values(), *llm_env.values()),
+        parent_control_values=((os.environ.get(key) or "").strip() for key in RESERVED_CONTROL_KEYS),
+    )
     workspace_root = str(SPARK_HOME / "workspaces")
     setup_state = load_json(CONFIG_PATH, {})
     primary_profile = primary_telegram_profile(setup_state)
     primary_relay_port = telegram_profile_relay_port(setup_state, primary_profile)
-
     gateway_env = {
         "BOT_TOKEN": secret_values.get("telegram.bot_token", ""),
         "ADMIN_TELEGRAM_IDS": secret_values.get("telegram.admin_ids", ""),
@@ -3686,6 +4807,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ONBOARDING_SESSION": str(getattr(args, "onboarding_session", "") or ""),
         "SPARK_ONBOARDING_EVENT_PATH": str(TELEGRAM_FIRST_MESSAGE_EVENTS_PATH),
         "SPARK_WORKSPACE_ROOT": workspace_root,
+        "SPARK_BRIDGE_API_KEY": bridge_api_key,
         "SPARK_ACCESS_LEVEL_DEFAULT": "4",
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
     }
@@ -3706,6 +4828,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
         "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
         "SPARK_CODEX_SANDBOX": "workspace-write",
+        "SPARK_BRIDGE_API_KEY": bridge_api_key,
     }
     for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
         value = os.environ.get(key)
@@ -3735,15 +4858,19 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         builder_env["SPARK_CHARACTER_ROOT"] = str(character.path)
     if memory is not None:
         builder_env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory.path)
-    voice = modules_by_name.get(VOICE_MODULE_NAME)
+    voice = modules_by_name.get(managed_secret_runtime.VOICE_MODULE_NAME)
     if voice is not None:
-        builder_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
-        if secret_values.get("voice.elevenlabs.api_key"):
-            builder_env["ELEVENLABS_API_KEY"] = secret_values["voice.elevenlabs.api_key"]
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_PROVIDER", "elevenlabs")
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+        managed_secret_runtime.configure_voice_owner_envs(builder_env, gateway_env, voice.path, secret_values)
 
+    # Governor HMAC signing key: inject the SAME value into the signer (spawner) and
+    # verifier (builder + gateway harness paths) so signatures validate across
+    # processes. Only when a key is actually provisioned; absent = unsigned key-less
+    # runtime, unchanged.
+    hmac_key = (secret_values.get(GOVERNOR_HMAC_SECRET_ID) or fetch_secret(GOVERNOR_HMAC_SECRET_ID) or "").strip()
+    if hmac_key:
+        gateway_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
+        spawner_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
+        builder_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
     return {
         gateway.name: gateway_env,
         spawner.name: spawner_env,
@@ -3755,7 +4882,6 @@ def should_preserve_level5_guardrails(module_name: str) -> bool:
     if module_name not in {"spawner-ui", "spark-telegram-bot"}:
         return False
     from .sandbox.access import LEVEL5_ENV, level5_guardrails_configured_by_audit
-
     existing = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
     already_enabled = all(existing.get(key) == value for key, value in LEVEL5_ENV.items())
     return already_enabled or level5_guardrails_configured_by_audit(home=SPARK_HOME)
@@ -3765,7 +4891,6 @@ def preserve_level5_guardrails(module_name: str, env_values: dict[str, str]) -> 
     if not should_preserve_level5_guardrails(module_name):
         return env_values
     from .sandbox.access import LEVEL5_ENV
-
     return {**env_values, **LEVEL5_ENV}
 
 
@@ -3813,6 +4938,30 @@ def append_spawner_webhook_url(spawner: Module, webhook_url: str) -> None:
         update_env_file(env_path, generated_env)
 
 
+def normalize_telegram_admin_ids(*values: str | None) -> str:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for raw in re.split(r"[\s,;]+", str(value)):
+            item = raw.strip()
+            if not item or item in seen:
+                continue
+            ids.append(item)
+            seen.add(item)
+    return ",".join(ids)
+
+
+def existing_telegram_admin_ids(base_env: dict[str, str], setup_state: dict[str, Any] | None = None) -> str:
+    values = [base_env.get("ADMIN_TELEGRAM_IDS")]
+    for path in telegram_generated_env_paths(setup_state):
+        if not path.exists():
+            continue
+        values.append(read_generated_env(path).get("ADMIN_TELEGRAM_IDS"))
+    return normalize_telegram_admin_ids(*values)
+
+
 def configure_telegram_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     installed = resolve_installed_modules()
@@ -3846,7 +4995,10 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
         raise SystemExit("--telegram-relay-port must be between 1 and 65535.")
 
     profile_env = dict(base_env)
-    profile_env["ADMIN_TELEGRAM_IDS"] = getattr(args, "admin_telegram_ids", None) or base_env.get("ADMIN_TELEGRAM_IDS", "")
+    profile_env["ADMIN_TELEGRAM_IDS"] = normalize_telegram_admin_ids(
+        existing_telegram_admin_ids(base_env, setup_state),
+        getattr(args, "admin_telegram_ids", None),
+    )
     profile_env["TELEGRAM_GATEWAY_MODE"] = "polling"
     profile_env["TELEGRAM_RELAY_PORT"] = str(relay_port)
     profile_env["SPARK_TELEGRAM_PROFILE"] = profile
@@ -3887,7 +5039,7 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
     save_json(CONFIG_PATH, setup_state)
 
     print(f"Telegram profile configured: {profile}")
-    print(f"Profile env: {generated_module_env_path(gateway, profile)}")
+    print(f"Profile env: {gateway} (profile {profile})")
     print(f"Secret {profile_secret_id} -> {backend}")
     if bot_identity and bot_identity.get("username"):
         print(f"Connected Telegram bot: @{bot_identity['username']}")
@@ -3966,7 +5118,7 @@ def initialize_builder_runtime_home(
             researcher_config = researcher.path / "spark-researcher.project.json"
             if researcher_config.exists():
                 config_manager.set_path("spark.researcher.config_path", str(researcher_config))
-            notes.append(f"connected spark-researcher at {researcher.path}")
+            notes.append(f"connected spark-researcher")
 
         memory = modules_by_name.get("domain-chip-memory")
         if memory is not None:
@@ -3976,7 +5128,7 @@ def initialize_builder_runtime_home(
             config_manager.set_path("spark.memory.sdk_module", "domain_chip_memory")
             activate_chip(config_manager, chip_key="domain-chip-memory")
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated domain-chip-memory at {memory.path}")
+            notes.append(f"activated domain-chip-memory")
 
             sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
             graphiti_state = sidecar_state.get("graphiti") if isinstance(sidecar_state, dict) else None
@@ -3991,19 +5143,19 @@ def initialize_builder_runtime_home(
                     "spark.memory.sidecars.graphiti.group_id",
                     str(graphiti_state.get("group_id") or DEFAULT_GRAPHITI_GROUP_ID),
                 )
-                notes.append(f"enabled Graphiti {backend} memory sidecar at {db_path}")
+                notes.append(f"enabled Graphiti {backend} memory sidecar")
             elif isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is False:
                 config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
                 notes.append("disabled optional Graphiti memory sidecar")
 
-        voice = modules_by_name.get(VOICE_MODULE_NAME)
+        voice = modules_by_name.get(managed_secret_runtime.VOICE_MODULE_NAME)
         if voice is not None:
             add_attachment_root(config_manager, target="chips", root=str(voice.path))
             config_manager.set_path("spark.voice.enabled", True)
             config_manager.set_path("spark.voice.comms_root", str(voice.path))
-            activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
+            activate_chip(config_manager, chip_key=managed_secret_runtime.VOICE_MODULE_NAME)
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated {VOICE_MODULE_NAME} at {voice.path}")
+            notes.append(f"activated {managed_secret_runtime.VOICE_MODULE_NAME}")
 
         setup_secrets = secret_values or {}
         telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
@@ -4020,8 +5172,10 @@ def initialize_builder_runtime_home(
                 status="enabled",
             )
             notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
-    except Exception as exc:  # pragma: no cover - defensive fallback for partial installs
+    except ImportError as exc:  # expected when the spark_intelligence package is not yet installed
         notes.append(f"Builder runtime bootstrap skipped: {exc}")
+    except Exception as exc:  # pragma: no cover - unexpected: surface the exception type only
+        notes.append(f"Builder runtime bootstrap failed: {type(exc).__name__}")
     finally:
         if inserted:
             try:
@@ -4062,7 +5216,12 @@ def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]
     return [modules[name] for name in names]
 
 
-def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]) -> dict[str, Module]:
+def ensure_bundle_modules_available(
+    names: list[str],
+    modules: dict[str, Module],
+    *,
+    allow_dirty_runtime: bool = False,
+) -> dict[str, Module]:
     """Populate `modules` with any missing bundle members.
 
     If a registry entry has a git URL source that has not been cloned yet,
@@ -4073,17 +5232,21 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
     for name in names:
         if name in augmented:
             continue
-        module = resolve_install_target(name, augmented)
+        module = resolve_install_target(name, augmented, allow_dirty_runtime=allow_dirty_runtime)
         augmented[module.name] = module
     return augmented
 
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    bundles = registry.get("bundles", {})
+    bundle = bundles.get(bundle_name, {})
     names = bundle.get("modules")
     if not names:
-        raise SystemExit(f"Unknown bundle: {bundle_name}")
+        known = sorted(name for name, item in bundles.items() if item.get("modules"))
+        if known:
+            raise SystemExit(f"Unknown bundle: {bundle_name}. Known bundles: {', '.join(known)}.")
+        raise SystemExit(f"Unknown bundle: {bundle_name}. No bundles are defined in the active registry.")
     return [str(name) for name in names]
 
 
@@ -4202,7 +5365,7 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     end = "# --- spark-cli managed end ---"
     lines: list[str] = []
     if path.exists():
-        existing = path.read_text(encoding="utf-8").splitlines()
+        existing = decode_env_file_bytes(path.read_bytes()).splitlines()
         inside = False
         for line in existing:
             if line.strip() == start:
@@ -4219,9 +5382,9 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
         lines.append("")
     lines.append(start)
     for key, value in values.items():
-        lines.append(f"{key}={value}")
+        lines.append(serialize_env_assignment(key, value))
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def remove_managed_env_block(path: Path) -> None:
@@ -4245,24 +5408,23 @@ def remove_managed_env_block(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     output = "\n".join(lines).strip()
-    path.write_text((output + "\n") if output else "", encoding="utf-8")
+    atomic_write_text(path, (output + "\n") if output else "")
 
 
-def cmd_list(_: argparse.Namespace) -> int:
+def cmd_list(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
-    for module in modules.values():
-        metadata = registry.get("modules", {}).get(module.name, {})
-        blessed = "yes" if metadata.get("blessed") else "no"
-        installed_marker = "installed" if module.name in installed else "available"
-        print(
-            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}\t{module.path}"
-        )
+    print(render_module_listing(modules, registry_modules=registry.get("modules", {}), installed=installed, json_output=bool(getattr(args, "json", False))))
     return 0
 
 
-def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
+def resolve_install_target(
+    target: str,
+    modules: dict[str, Module],
+    *,
+    allow_dirty_runtime: bool = False,
+) -> Module:
     if target in modules:
         return modules[target]
     registry = load_registry_definition()
@@ -4275,6 +5437,7 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
                 source,
                 commit=str(registry_metadata.get("commit", "")),
                 require_signed_commit=bool(registry_metadata.get("require_signed_commit", False)),
+                allow_dirty_runtime=allow_dirty_runtime,
             )
             return load_module(clone_path)
         if source and Path(source).exists():
@@ -4284,7 +5447,7 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
             raise SystemExit(f"Registry entry {target} points at {source} but no spark.toml is there.")
     if is_git_source(target):
         name = infer_module_name_from_url(target)
-        clone_path = clone_module_source(name, target)
+        clone_path = clone_module_source(name, target, allow_dirty_runtime=allow_dirty_runtime)
         return load_module(clone_path)
     candidate = Path(target)
     if candidate.exists():
@@ -4292,7 +5455,25 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
         if not manifest_path.exists():
             raise SystemExit(f"{candidate} does not contain spark.toml")
         return load_module(candidate)
-    raise SystemExit(f"Unknown module target: {target}")
+    raise SystemExit(unknown_install_target_message(target, modules, registry))
+
+
+def unknown_install_target_message(target: str, modules: dict[str, Module], registry: dict[str, Any]) -> str:
+    installed_names = sorted(modules)
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    registry_names = sorted(name for name in registry_modules if name not in modules)
+    parts = [f"Unknown module target: {target}."]
+    if installed_names:
+        parts.append("Installed modules: " + ", ".join(installed_names) + ".")
+    else:
+        parts.append("No modules are installed yet.")
+    if registry_names:
+        parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
+    parts.append(
+        "Pass an installed module name, a registry-known module name, a git URL, "
+        "or a local directory containing spark.toml."
+    )
+    return " ".join(parts)
 
 
 def install_module_record(
@@ -4395,6 +5576,10 @@ def public_local_path_ref(path: str | Path) -> str:
     return f"<local-path>/{candidate.name}"
 
 
+def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME) -> str:
+    return text.replace("<spark-home>", str(spark_home))
+
+
 def public_diagnostic_payload(value: Any) -> Any:
     if isinstance(value, dict):
         payload: dict[str, Any] = {}
@@ -4462,13 +5647,20 @@ def chip_scan_is_fixture_path(path_label: str) -> bool:
     return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
 
 
-def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
-    if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
+def normalize_fixture_finding(finding: ChipScanFinding, text: str = "") -> ChipScanFinding:
+    if finding.category in {"network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
         return ChipScanFinding(
             finding.category,
             "low",
             finding.path,
             f"{finding.detail}; appears in test/fixture code and is not installed as runtime secret material",
+        )
+    if finding.category == "embedded-private-key" and is_redaction_fixture_private_key(finding.path, text):
+        return ChipScanFinding(
+            finding.category,
+            "low",
+            finding.path,
+            f"{finding.detail}; placeholder key passed to a redaction helper in test/fixture code, not installed key material",
         )
     return finding
 
@@ -4519,7 +5711,7 @@ def chip_scan_file(root: Path, path: Path) -> list[ChipScanFinding]:
     if b"\0" in data:
         return findings
     text = data.decode("utf-8", errors="replace")
-    return [normalize_fixture_finding(finding) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
+    return [normalize_fixture_finding(finding, text) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
 
 
 def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[ChipScanFinding]:
@@ -4620,7 +5812,7 @@ def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str
         answer = input("Type 'yes' to proceed: ").strip().lower()
     except EOFError:
         return False
-    return answer in ("yes", "y")
+    return answer == "yes"
 
 
 def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: str) -> None:
@@ -4708,7 +5900,7 @@ def print_install_summary(modules: list[Module]) -> None:
 def install_modules(modules: list[Module]) -> None:
     print_install_summary(modules)
     for module in modules:
-        print(f"Installed {module.name} from {module.path}")
+        print(f"Installed {module.name}")
         if "telegram.ingress" in module.capabilities:
             print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
@@ -4781,18 +5973,40 @@ def detect_uninstall_blockers(removing_modules: list[Module], installed_modules:
     return blockers
 
 
+def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
+    if module.name != "spark-telegram-bot":
+        return None
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    if isinstance(profiles, dict) and profiles:
+        return primary_telegram_profile(setup_state)
+    return None
+
+
 def evaluate_module_health(module: Module) -> dict[str, Any]:
-    runtime_env = module_runtime_env(module)
+    setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
+    runtime_env = module_healthcheck_env(module, module_healthcheck_profile(module, setup_state))
     if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
+        if not spawner_liveness_can_trust_local_port(runtime_env):
+            return {
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "healthy": False,
+                "detail": "Spawner UI live health is not trusted because no Spark-supervised spawner-ui process is running.",
+                "healthcheck_command": None,
+                "failure_hint": "Run `spark start spawner-ui`, then rerun `spark status`.",
+                "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
+            }
         health_url = spawner_runtime_health_url(module, runtime_env)
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
         try:
-            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
-            with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
+            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url, module_name=module.name))
+            with local_health_urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
-        except Exception as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
             healthy = False
             detail = f"Spawner UI live health failed: {exc}"
         return {
@@ -4806,7 +6020,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             "failure_hint": failure_hint,
             "success_hint": success_hint,
         }
-    if module.name == "spark-telegram-bot" and telegram_ingress_is_external():
+    if module.name == "spark-telegram-bot" and telegram_ingress_is_external(setup_state):
         return {
             "name": module.name,
             "version": module.version,
@@ -4920,6 +6134,12 @@ def build_status_repair_hints(
     tracked_pids: dict[str, Any] | None = None,
 ) -> list[str]:
     hints: list[str] = []
+    orphan_clones = scan_orphan_module_clones()
+    if orphan_clones:
+        hints.append(
+            f"Found {len(orphan_clones)} incomplete module clone(s) (interrupted install). "
+            "Run `spark fix modules --clean`, then `spark setup` to re-clone."
+        )
     bundle_name = setup_state.get("bundle")
     installed_names = set(modules)
     if bundle_name:
@@ -4985,26 +6205,18 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
         if not isinstance(state, dict):
             continue
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
-        auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+        configured_auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
         provider_spec = LLM_PROVIDER_ENV.get(provider, {})
         api_key_secret = provider_spec.get("api_key_secret")
-        if auth_mode == "not_configured":
-            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
-                auth_mode = "api_key"
-            elif api_key_secret and api_key_secret in stored_secret_keys:
-                auth_mode = "api_key"
-            elif provider == "codex" and detect_codex_cli()["present"]:
-                auth_mode = "codex_oauth"
-            elif provider == "openai":
-                base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
-                if base_kind == "local":
-                    auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
-                    auth_mode = "codex_oauth"
-            elif provider == "anthropic" and detect_claude_code()["present"]:
-                auth_mode = "claude_oauth"
-            elif provider == "ollama":
-                auth_mode = "local"
+        auth_mode = effective_provider_auth_mode(
+            provider,
+            configured_auth_mode=configured_auth_mode,
+            api_key_configured=bool(state.get("api_key_configured") or llm_state.get("api_key_configured")),
+            stored_secret_configured=bool(api_key_secret and api_key_secret in stored_secret_keys),
+            base_url_kind=openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")),
+            codex_cli_present=configured_auth_mode == "not_configured" and provider == "codex" and detect_codex_cli()["present"],
+            claude_cli_present=configured_auth_mode == "not_configured" and provider == "anthropic" and detect_claude_code()["present"],
+        )
         role_label = "LLM provider" if role == "all" else f"LLM role `{role}`"
         role_flag = "--llm-provider" if role == "all" else f"--{role}-llm-provider"
         if provider == "not_configured":
@@ -5014,24 +6226,37 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
         elif provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"} and auth_mode == "not_configured":
             label = LLM_PROVIDER_LABELS.get(provider, provider)
             hints.append(
-                f"{role_label} uses {label} but is missing an API key. Re-run `spark setup {role_flag} {provider} --{provider}-api-key <key>`."
+                f"{role_label} uses {label} but is missing an API key. Re-run `spark setup {role_flag} {provider}`; "
+                "Spark will prompt securely, and you can type @clipboard when asked."
             )
         elif provider == "anthropic" and auth_mode == "not_configured":
             hints.append(
-                f"{role_label} uses Anthropic Claude but neither Anthropic Claude Code nor ANTHROPIC_API_KEY is configured. Run `claude` to sign in so Spark can call `claude -p`, or rerun `spark setup {role_flag} anthropic --anthropic-api-key <key>`."
+                f"{role_label} uses Anthropic Claude but neither Anthropic Claude Code nor ANTHROPIC_API_KEY is configured. "
+                f"Run `claude` to sign in so Spark can call `claude -p`, or rerun `spark setup {role_flag} anthropic`; "
+                "Spark will prompt securely, and you can type @clipboard when asked."
             )
         elif provider == "openai" and auth_mode == "not_configured" and openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")) == "remote_custom":
             hints.append(
-                f"{role_label} uses a custom OpenAI-compatible endpoint but is missing an API key. Re-run `spark setup {role_flag} openai --openai-api-key <key> --openai-base-url <url>`."
+                f"{role_label} uses a custom OpenAI-compatible endpoint but is missing an API key. "
+                f"Re-run `spark setup {role_flag} openai --openai-base-url <url>`; Spark will prompt securely, "
+                "and you can type @clipboard when asked."
             )
         elif provider == "openai" and auth_mode == "not_configured":
             hints.append(
-                f"{role_label} uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup {role_flag} openai --openai-api-key <key>`, or use `spark setup {role_flag} codex` for OpenAI Codex sign-in."
+                f"{role_label} uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup {role_flag} openai`; "
+                "Spark will prompt securely, and you can type @clipboard when asked. "
+                f"Or use `spark setup {role_flag} codex` for OpenAI Codex sign-in."
             )
         elif provider == "codex" and auth_mode == "not_configured":
             hints.append(
                 f"{role_label} uses OpenAI Codex but the OpenAI Codex CLI is not signed in or not on PATH. Run `codex login` first, then rerun `spark setup {role_flag} codex`."
             )
+        elif auth_mode == "codex_oauth":
+            codex_auth = state.get("codex_auth") if isinstance(state, dict) else None
+            if isinstance(codex_auth, dict) and not codex_auth.get("ok"):
+                hints.append(
+                    f"{role_label} uses OpenAI Codex sign-in but Codex CLI auth is not ready. Run `codex login`, then rerun `spark providers status`."
+                )
     return hints
 
 
@@ -5043,8 +6268,14 @@ def cmd_install(args: argparse.Namespace) -> int:
     resume = getattr(args, "resume", False)
     if args.target in registry.get("bundles", {}):
         bundle_names = resolve_bundle_names(args.target)
-        modules = ensure_bundle_modules_available(bundle_names, modules)
+        modules = ensure_bundle_modules_available(
+            bundle_names,
+            modules,
+            allow_dirty_runtime=bool(getattr(args, "allow_dirty_runtime", False)),
+        )
         bundle_modules = [modules[name] for name in bundle_names]
+        if not emit_runtime_supply_chain_guard(bundle_modules, args):
+            return 1
         detect_ingress_owner(bundle_modules)
         for module in bundle_modules:
             validate_manifest_schema(module)
@@ -5071,7 +6302,13 @@ def cmd_install(args: argparse.Namespace) -> int:
             )
             clear_install_progress(module.name)
         return 0
-    module = resolve_install_target(args.target, modules)
+    module = resolve_install_target(
+        args.target,
+        modules,
+        allow_dirty_runtime=bool(getattr(args, "allow_dirty_runtime", False)),
+    )
+    if not emit_runtime_supply_chain_guard([module], args):
+        return 1
     validate_manifest_schema(module)
     source_kind = determine_install_source_kind(args.target, modules)
     conflicts = detect_capability_conflicts([module], installed_modules)
@@ -5247,16 +6484,16 @@ def apply_setup_feature_aliases(args: argparse.Namespace) -> None:
             raise SystemExit(f"`--with-voice` requires the `{TELEGRAM_VOICE_BUNDLE}` bundle in registry.json.")
         setattr(args, "bundle", TELEGRAM_VOICE_BUNDLE)
         return
-    if VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
-        raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{VOICE_MODULE_NAME}`.")
+    if managed_secret_runtime.VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
+        raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{managed_secret_runtime.VOICE_MODULE_NAME}`.")
 
 
 def voice_setup_state(args: argparse.Namespace, bundle: list[Module], secret_values: dict[str, str]) -> dict[str, Any] | None:
-    if not any(module.name == VOICE_MODULE_NAME for module in bundle):
+    if not any(module.name == managed_secret_runtime.VOICE_MODULE_NAME for module in bundle):
         return None
     return {
         "enabled": True,
-        "module": VOICE_MODULE_NAME,
+        "module": managed_secret_runtime.VOICE_MODULE_NAME,
         "elevenlabs_secret_configured": bool(secret_values.get("voice.elevenlabs.api_key")),
         "telegram_checks": ["/voice self-test", "/voice provider", "/voice speak Clean reset, Cem. Latest message wins."],
     }
@@ -5383,7 +6620,996 @@ def install_memory_sidecar_dependencies(
         return
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", install_target],
+            check=True,
+            timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
+            "The package download may be slow or the network unreachable. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except OSError as exc:
+        raise SystemExit(
+            "Optional Graphiti/Kuzu memory sidecar install could not start. "
+            "Check Python/pip availability, or re-run setup with --skip-install-commands."
+        ) from exc
+
+
+def browser_use_cli_path() -> str | None:
+    discovered = shutil.which("browser-use") or shutil.which("browser_use")
+    if discovered:
+        return discovered
+    executable_dir = Path(sys.executable).resolve().parent
+    candidate_dirs = [executable_dir]
+    spark_home = os.environ.get("SPARK_HOME")
+    if spark_home:
+        venv_root = Path(spark_home).expanduser() / "tools" / "spark-cli-venv"
+        candidate_dirs.extend([venv_root / "bin", venv_root / "Scripts"])
+    for name in ("browser-use.exe", "browser_use.exe", "browser-use", "browser_use"):
+        for directory in candidate_dirs:
+            candidate = directory / name
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+def browser_use_package_available() -> bool:
+    return importlib.util.find_spec("browser_use") is not None
+
+
+def browser_use_status_file_payload() -> dict[str, Any]:
+    if not BROWSER_USE_STATUS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(BROWSER_USE_STATUS_PATH.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "error",
+            "last_failure_reason": f"could not read browser-use status file: {exc}",
+        }
+    return data if isinstance(data, dict) else {"status": "error", "last_failure_reason": "browser-use status file is not a JSON object"}
+
+
+def browser_use_status_payload() -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    package_available = browser_use_package_available()
+    status_doc = browser_use_status_file_payload()
+    latest_action = browser_use_latest_action_receipt()
+    raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
+    proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
+    proof_set = set(proofs)
+    proof_fresh = browser_use_proof_is_fresh(status_doc)
+    proof_complete = BROWSER_USE_REQUIRED_PROOFS.issubset(proof_set)
+    screenshot_ok = browser_use_screenshot_ok(status_doc)
+    ready_signal = raw_status in {"ready", "running", "healthy", "available", "ok", "success", "completed"} or status_doc.get("ready") is True
+    ready = ready_signal and proof_complete and proof_fresh and screenshot_ok
+    failed = raw_status in {"failed", "failure", "error", "unavailable", "degraded"} or status_doc.get("ready") is False
+    if ready:
+        status = "ready"
+    elif failed:
+        status = "failed"
+    elif package_available or cli_path:
+        status = "installed_unproven"
+    else:
+        status = "missing"
+    stale_or_incomplete_reason = browser_use_status_receipt_problem(
+        ready_signal=ready_signal,
+        proof_complete=proof_complete,
+        proof_fresh=proof_fresh,
+        screenshot_ok=screenshot_ok,
+        proofs=proofs,
+    )
+    return {
+        "ok": status == "ready",
+        "status": status,
+        "package_available": package_available,
+        "cli_available": bool(cli_path),
+        "cli_path": public_local_path_ref(cli_path) if cli_path else "",
+        "status_path": public_local_path_ref(BROWSER_USE_STATUS_PATH),
+        "status_exists": BROWSER_USE_STATUS_PATH.exists(),
+        "last_success_at": str(status_doc.get("last_success_at") or ""),
+        "last_failure_at": str(status_doc.get("last_failure_at") or ""),
+        "last_failure_reason": str(status_doc.get("last_failure_reason") or status_doc.get("error_message") or stale_or_incomplete_reason),
+        "proofs": proofs,
+        "proof_fresh": proof_fresh,
+        "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
+        "proven_scope": browser_use_proven_scope(proofs),
+        "latest_action": latest_action,
+        "unproven_scope": [
+            "logged-in pages",
+            "cookies/profile reuse",
+            "sensitive click workflows",
+            "arbitrary site workflows",
+            "Spawner browser automation",
+        ],
+        "next_action": browser_use_next_action(status),
+    }
+
+
+def browser_use_latest_action_receipt() -> dict[str, Any]:
+    action_dir = BROWSER_USE_STATUS_DIR / "actions"
+    if not action_dir.exists():
+        return {}
+    try:
+        candidates = sorted(
+            [path for path in action_dir.glob("*.json") if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return {
+            "action": str(payload.get("action") or ""),
+            "url": str(payload.get("url") or ""),
+            "status": str(payload.get("status") or ""),
+            "ok": bool(payload.get("ok")),
+            "checked_at": str(payload.get("checked_at") or ""),
+            "last_success_at": str(payload.get("last_success_at") or ""),
+            "last_failure_at": str(payload.get("last_failure_at") or ""),
+            "last_failure_reason": str(payload.get("last_failure_reason") or ""),
+            "final_url": str(payload.get("final_url") or ""),
+            "title": str(payload.get("title") or ""),
+            "receipt_path": public_local_path_ref(path),
+            "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
+        }
+    return {}
+
+
+def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
+    timestamp = str(status_doc.get("last_success_at") or status_doc.get("recorded_at") or status_doc.get("checked_at") or "").strip()
+    if not timestamp:
+        return False
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() <= BROWSER_USE_PROOF_TTL_SECONDS
+
+
+def browser_use_screenshot_ok(status_doc: dict[str, Any]) -> bool:
+    screenshot = str(status_doc.get("screenshot_path") or status_doc.get("screenshot") or "").strip()
+    proofs = status_doc.get("proofs") if isinstance(status_doc.get("proofs"), dict) else {}
+    screenshot_proof = proofs.get("screenshot_capture") if isinstance(proofs, dict) else {}
+    if not screenshot and isinstance(screenshot_proof, dict):
+        screenshot = str(screenshot_proof.get("path") or screenshot_proof.get("screenshot_path") or "").strip()
+    if not screenshot:
+        return "screenshot_capture" not in {str(item) for item in (status_doc.get("proofs") or [])}
+    return Path(screenshot).expanduser().exists()
+
+
+def browser_use_status_receipt_problem(
+    *,
+    ready_signal: bool,
+    proof_complete: bool,
+    proof_fresh: bool,
+    screenshot_ok: bool,
+    proofs: list[str],
+) -> str:
+    if not ready_signal:
+        return ""
+    if not proof_complete:
+        missing = sorted(BROWSER_USE_REQUIRED_PROOFS.difference(set(proofs)))
+        return "browser-use status is ready, but proof receipt is incomplete: missing " + ", ".join(missing)
+    if not proof_fresh:
+        return "browser-use proof receipt is stale; rerun `spark browser-use probe`."
+    if not screenshot_ok:
+        return "browser-use screenshot proof artifact is missing."
+    return ""
+
+
+def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
+    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+    scope: list[str] = []
+    if "doctor" in proof_set:
+        scope.append("browser-use doctor")
+    if "public_page_open" in proof_set:
+        scope.append("public page open")
+    if "state_read" in proof_set:
+        scope.append("page state read")
+    if "screenshot_capture" in proof_set:
+        scope.append("screenshot capture")
+    return scope
+
+
+def browser_use_next_action(status: str) -> str:
+    if status == "ready":
+        return "Run /probe browser in Telegram before claiming a specific browser task worked this turn."
+    if status == "installed_unproven":
+        return "Run `spark browser-use probe` to create a fresh proof receipt."
+    if status == "failed":
+        return "Run `spark browser-use probe --json` and inspect last_failure_reason."
+    return "Run `spark browser-use install`, then `spark browser-use probe`."
+
+
+def write_browser_use_status(payload: dict[str, Any]) -> None:
+    BROWSER_USE_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
+
+
+def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    return subprocess.run(
+        [cli_path, *parts],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=True,
+        env=env,
+    )
+
+
+def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], screenshot_path: Path) -> None:
+    try:
+        parsed = json.loads(result.stdout.strip())
+        data = parsed.get("data") if isinstance(parsed, dict) else {}
+        encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
+        if not encoded:
+            backend_error = ""
+            if isinstance(parsed, dict):
+                backend_error = str(parsed.get("error") or "").strip()
+            detail = f": {backend_error}" if backend_error else ""
+            raise ValueError(f"missing screenshot data{detail}")
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
+    except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
+        raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
+
+
+def browser_use_probe_payload() -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_adapter",
+        "status_path": str(BROWSER_USE_STATUS_PATH),
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+        "checked_at": now,
+        "proofs": [],
+    }
+    if not cli_path:
+        failure = "browser-use CLI is not on PATH."
+        payload = {
+            **base_payload,
+            "status": "failed",
+            "ready": False,
+            "last_failure_at": now,
+            "last_failure_reason": failure,
+        }
+        write_browser_use_status(payload)
+        return payload
+
+    screenshot_path = BROWSER_USE_STATUS_DIR / "probe-screenshot.png"
+    proofs: list[str] = []
+    try:
+        run_browser_use_command(cli_path, "doctor", timeout=60)
+        proofs.append("doctor")
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "open", BROWSER_USE_PROBE_URL, timeout=90)
+        proofs.append("public_page_open")
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
+        proofs.append("state_read")
+        screenshot = run_browser_use_command(cli_path, "--json", "--session", BROWSER_USE_PROBE_SESSION, "screenshot", timeout=60)
+        write_browser_use_screenshot(screenshot, screenshot_path)
+        proofs.append("screenshot_capture")
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        failure = browser_use_command_failure_message(exc)
+        payload = {
+            **base_payload,
+            "status": "failed",
+            "ready": False,
+            "proofs": proofs,
+            "last_failure_at": now,
+            "last_failure_reason": failure,
+        }
+        write_browser_use_status(payload)
+        return payload
+    finally:
+        if cli_path:
+            env = dict(os.environ)
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+            env.setdefault("PYTHONUTF8", "1")
+            subprocess.run(
+                [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=env,
+            )
+
+    payload = {
+        **base_payload,
+        "status": "ready",
+        "ready": True,
+        "last_success_at": now,
+        "proofs": proofs,
+        "probe_url": BROWSER_USE_PROBE_URL,
+        "screenshot_path": str(screenshot_path),
+    }
+    write_browser_use_status(payload)
+    return payload
+
+
+def browser_use_public_url(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value:
+        raise ValueError("Browser URL is required.")
+    if "://" not in value:
+        value = f"https://{value}"
+    errors = validate_url_safety(
+        value,
+        label="Browser URL",
+        policy=UrlPolicy(allow_local=True, allow_private_networks=True, require_https_for_remote=False),
+    )
+    if errors:
+        raise ValueError(" ".join(errors))
+    parsed = urllib.parse.urlparse(value)
+    return urllib.parse.urlunparse(parsed)
+
+
+def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        url = browser_use_public_url(raw_url)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "screenshot" if screenshot else "open",
+            "url": str(raw_url or "").strip(),
+            "checked_at": now,
+            "last_failure_reason": str(exc),
+        }
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_adapter",
+        "action": "screenshot" if screenshot else "open",
+        "url": url,
+        "checked_at": now,
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+    }
+    if not cli_path:
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_reason": "browser-use CLI is not on PATH.",
+        }
+
+    session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
+    receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
+    screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+    proofs: list[str] = []
+    try:
+        run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
+        proofs.append("public_url_open")
+        state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45)
+        proofs.append("state_read")
+        page = browser_use_page_summary(cli_path, session)
+        if screenshot:
+            result = run_browser_use_command(cli_path, "--json", "--session", session, "screenshot", timeout=60)
+            write_browser_use_screenshot(result, screenshot_path)
+            proofs.append("screenshot_capture")
+        payload = {
+            **base_payload,
+            "ok": True,
+            "status": "ready",
+            "session": session,
+            "last_success_at": now,
+            "proofs": proofs,
+            "final_url": str(page.get("url") or url),
+            "title": str(page.get("title") or ""),
+            "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
+            "state_excerpt": browser_use_bounded_text(state.stdout),
+            "screenshot_path": str(screenshot_path) if screenshot else "",
+            "receipt_path": str(receipt_path),
+            "proven_scope": browser_use_action_scope(proofs),
+            "unproven_scope": [
+                "logged-in pages",
+                "cookies/profile reuse",
+                "sensitive click workflows",
+            ],
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "session": session,
+            "last_failure_at": now,
+            "last_failure_reason": browser_use_command_failure_message(exc),
+            "proofs": proofs,
+            "receipt_path": str(receipt_path),
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    finally:
+        env = dict(os.environ)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
+        subprocess.run(
+            [cli_path, "--session", session, "close"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            env=env,
+        )
+
+
+_PAGE_SUMMARY_TEXT_LIMIT = 2000
+
+
+def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
+    summary_limit = _PAGE_SUMMARY_TEXT_LIMIT + 1
+    script = (
+        "(()=>{const text=document.body.innerText||'';"
+        f"return JSON.stringify({{title:document.title,url:location.href,text:text.slice(0,{summary_limit}),"
+        "textLength:text.length});"
+        "})()"
+    )
+    result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
+    raw = result.stdout.strip()
+    if raw.lower().startswith("result:"):
+        raw = raw.split(":", 1)[1].strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"title": "", "url": "", "text": ""}
+    if not isinstance(parsed, dict):
+        return {"title": "", "url": "", "text": ""}
+    text = str(parsed.get("text") or "")
+    try:
+        text_length = int(parsed.get("textLength") or len(text))
+    except (TypeError, ValueError):
+        text_length = len(text)
+    if text_length > _PAGE_SUMMARY_TEXT_LIMIT or len(text) > _PAGE_SUMMARY_TEXT_LIMIT:
+        text = text[:_PAGE_SUMMARY_TEXT_LIMIT].rstrip() + "\n[truncated]"
+    return {
+        "title": str(parsed.get("title") or ""),
+        "url": str(parsed.get("url") or ""),
+        "text": text,
+    }
+
+
+def browser_use_bounded_text(value: str, limit: int = BROWSER_USE_ACTION_TEXT_LIMIT) -> str:
+    compact = re.sub(r"\s+\n", "\n", str(value or "")).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 20)].rstrip() + "\n[truncated]"
+
+
+def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
+    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+    scope: list[str] = []
+    if "public_url_open" in proof_set:
+        scope.append("public URL open")
+    if "state_read" in proof_set:
+        scope.append("page state read")
+    if "screenshot_capture" in proof_set:
+        scope.append("screenshot capture")
+    return scope
+
+
+def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int = 25) -> dict[str, Any]:
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    cleaned_goal = str(goal or "").strip()
+    if not cleaned_goal:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "task",
+            "checked_at": now,
+            "last_failure_reason": "Browser-use task is required.",
+        }
+    try:
+        url = browser_use_public_url(start_url) if str(start_url or "").strip() else ""
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "task",
+            "checked_at": now,
+            "url": str(start_url or "").strip(),
+            "task": cleaned_goal,
+            "last_failure_reason": str(exc),
+        }
+    try:
+        steps = max(1, min(int(max_steps), 100))
+    except (TypeError, ValueError):
+        steps = 25
+
+    session = "spark-browser-task-" + hashlib.sha256(f"{cleaned_goal}:{url}:{now}".encode("utf-8")).hexdigest()[:12]
+    task_dir = BROWSER_USE_STATUS_DIR / "tasks"
+    receipt_path = task_dir / f"{session}.json"
+    history_path = task_dir / f"{session}-history.json"
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_agent",
+        "action": "task",
+        "checked_at": now,
+        "session": session,
+        "task": cleaned_goal,
+        "url": url,
+        "max_steps": steps,
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(browser_use_cli_path()),
+        "cli_path": browser_use_cli_path() or "",
+        "receipt_path": str(receipt_path),
+        "history_path": str(history_path),
+    }
+    if not browser_use_package_available():
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_reason": "browser-use Python package is not installed. Run `spark browser-use install`.",
+        }
+
+    task_dir.mkdir(parents=True, exist_ok=True)
+    start_page: dict[str, Any] = {}
+    if url:
+        start_page = browser_use_task_start_page(url)
+        base_payload["start_page"] = browser_use_task_start_page_summary(start_page)
+        if not start_page.get("ok"):
+            payload = {
+                **base_payload,
+                "ok": False,
+                "status": "failed",
+                "last_failure_at": now,
+                "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
+            }
+            atomic_write_json(receipt_path, payload)
+            return payload
+    try:
+        result = asyncio.run(run_browser_use_agent_task(cleaned_goal, start_url=url, max_steps=steps, history_path=history_path, start_page=start_page))
+        completed = browser_use_task_completed(result)
+        payload = {
+            **base_payload,
+            **result,
+            "ok": completed,
+            "status": "ready" if completed else "failed",
+            "unproven_scope": [
+                "site-specific login state unless the task used an authenticated browser profile",
+                "changes outside the browser unless another Spark route performed them",
+            ],
+        }
+        if completed:
+            payload["last_success_at"] = now
+            payload["proven_scope"] = [
+                "multi-step browser task",
+                "agent planning loop",
+                "browser actions selected by browser-use",
+            ]
+        else:
+            payload["last_failure_at"] = now
+            payload["last_failure_reason"] = browser_use_task_failure_reason(result)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    except Exception as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_at": now,
+            "last_failure_reason": browser_use_command_failure_message(exc),
+        }
+        atomic_write_json(receipt_path, payload)
+        return payload
+
+
+def browser_use_task_start_page(url: str) -> dict[str, Any]:
+    return browser_use_action_payload(url, screenshot=True)
+
+
+def browser_use_task_start_page_summary(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "url": str(payload.get("final_url") or payload.get("url") or ""),
+        "title": str(payload.get("title") or ""),
+        "text_excerpt": browser_use_bounded_text(str(payload.get("text_excerpt") or ""), 1200),
+        "screenshot_path": str(payload.get("screenshot_path") or ""),
+        "receipt_path": str(payload.get("receipt_path") or ""),
+    }
+
+
+async def run_browser_use_agent_task(
+    goal: str,
+    *,
+    start_url: str = "",
+    max_steps: int = 25,
+    history_path: Path | None = None,
+    start_page: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from browser_use import Agent, Browser
+
+    task = goal if not start_url else f"Start at {start_url}. {goal}"
+    task = f"{task}\nUse only the live browser state and page content observed during this run. Do not fill gaps from memory."
+    if start_page and start_page.get("ok"):
+        page = browser_use_task_start_page_summary(start_page)
+        task = (
+            f"{task}\n\nFresh browser-use starting-page evidence captured just before this task:\n"
+            f"URL: {page['url']}\n"
+            f"Title: {page['title']}\n"
+            f"Visible text excerpt:\n{page['text_excerpt']}\n"
+            "Treat this evidence as authoritative for the starting page unless later browser state contradicts it."
+        )
+    browser = Browser(headless=True)
+    try:
+        llm, llm_label = browser_use_agent_llm()
+        agent = Agent(
+            task=task,
+            llm=llm,
+            browser=browser,
+            max_actions_per_step=5,
+            extend_system_message=BROWSER_USE_AGENT_SYSTEM_NUDGE,
+            flash_mode=True,
+            include_tool_call_examples=False,
+            use_thinking=False,
+            use_judge=False,
+            llm_screenshot_size=BROWSER_USE_AGENT_LLM_SCREENSHOT_SIZE,
+            enable_planning=False,
+        )
+        history = await agent.run(max_steps=max_steps)
+        if history_path is not None:
+            history.save_to_file(history_path)
+        return browser_use_agent_history_payload(history) | {"llm": llm_label}
+    finally:
+        await browser.close()
+
+
+def browser_use_agent_llm() -> tuple[Any, str]:
+    browser_use_key = os.environ.get("BROWSER_USE_API_KEY") or fetch_secret("browser_use.api_key") or fetch_secret("llm.browser_use.api_key")
+    if browser_use_key:
+        from browser_use import ChatBrowserUse
+
+        return ChatBrowserUse(api_key=browser_use_key), "browser-use"
+
+    from browser_use.llm.litellm.chat import ChatLiteLLM
+
+    for provider in ("openai", "openrouter", "minimax", "kimi", "zai", "huggingface", "anthropic"):
+        spec = LLM_PROVIDER_ENV.get(provider, {})
+        api_key_env = spec.get("api_key_env", "")
+        api_key_secret = spec.get("api_key_secret", "")
+        api_key = (os.environ.get(api_key_env) if api_key_env else "") or (fetch_secret(api_key_secret) if api_key_secret else "")
+        if not api_key:
+            continue
+        model = os.environ.get(spec.get("model_env", "")) or spec.get("model_default", "")
+        api_base = os.environ.get(spec.get("base_url_env", "")) or spec.get("base_url_default", "")
+        if provider == "anthropic":
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"anthropic/{model}", api_key=api_key)), provider
+        if provider == "openrouter":
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openrouter/{model}", api_key=api_key, api_base=api_base)), provider
+        if provider == "openai":
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=model, api_key=api_key, api_base=api_base)), provider
+        return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openai/{model}", api_key=api_key, api_base=api_base)), provider
+
+    raise RuntimeError(
+        "No browser-use Agent LLM key is configured. Set BROWSER_USE_API_KEY, or configure an OpenAI-compatible Spark provider key."
+    )
+
+
+class SparkBrowserUseStructuredLLM:
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    @property
+    def provider(self) -> str:
+        return str(getattr(self.inner, "provider", "spark-browser-use"))
+
+    @property
+    def name(self) -> str:
+        return str(getattr(self.inner, "name", getattr(self.inner, "model", "spark-browser-use")))
+
+    @property
+    def model(self) -> str:
+        return str(getattr(self.inner, "model", self.name))
+
+    @property
+    def model_name(self) -> str:
+        return str(getattr(self.inner, "model_name", self.model))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    async def ainvoke(self, messages: list[Any], output_format: type[Any] | None = None, **kwargs: Any) -> Any:
+        if output_format is None:
+            return await self.inner.ainvoke(messages, output_format=None, **kwargs)
+
+        from browser_use.llm.views import ChatInvokeCompletion
+
+        completion = await self.inner.ainvoke(messages, output_format=None, **kwargs)
+        parsed = output_format.model_validate_json(
+            browser_use_normalize_structured_agent_json(str(getattr(completion, "completion", "") or ""))
+        )
+        return ChatInvokeCompletion(
+            completion=parsed,
+            thinking=getattr(completion, "thinking", None),
+            usage=getattr(completion, "usage", None),
+            stop_reason=getattr(completion, "stop_reason", None),
+        )
+
+
+def browser_use_normalize_structured_agent_json(raw: str) -> str:
+    text = raw.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+    elif not text.startswith("{"):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start:end + 1]
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(payload, dict):
+        return text
+
+    if "done" in payload and "action" not in payload:
+        payload = {"memory": str(payload.get("memory") or "Task result ready."), "action": [{"done": payload["done"]}]}
+    actions = payload.get("action")
+    if isinstance(actions, dict):
+        payload["action"] = [actions]
+        actions = payload["action"]
+    if isinstance(actions, list):
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            done = action.get("done")
+            if isinstance(done, dict) and "text" not in done and "answer" in done:
+                done["text"] = done.pop("answer")
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def browser_use_agent_history_payload(history: Any) -> dict[str, Any]:
+    def read(name: str, default: Any = None) -> Any:
+        value = getattr(history, name, default)
+        if callable(value):
+            try:
+                return value()
+            except TypeError:
+                return default
+        return value
+
+    final_result = read("final_result", "") or ""
+    extracted = read("extracted_content", []) or []
+    errors = read("errors", []) or []
+    urls = read("urls", []) or []
+    screenshots = read("screenshot_paths", []) or []
+    action_names = read("action_names", []) or []
+    return {
+        "final_result": browser_use_bounded_text(str(final_result), BROWSER_USE_TASK_TEXT_LIMIT),
+        "extracted_content": browser_use_bounded_list(extracted, limit=6),
+        "errors": browser_use_bounded_list(errors, limit=5),
+        "urls": browser_use_bounded_list(urls, limit=8),
+        "screenshot_paths": browser_use_bounded_list(screenshots, limit=8),
+        "action_names": browser_use_bounded_list(action_names, limit=20),
+        "number_of_steps": read("number_of_steps", 0) or 0,
+        "total_duration_seconds": read("total_duration_seconds", 0) or 0,
+        "is_done": bool(read("is_done", False)),
+        "is_successful": bool(read("is_successful", False)),
+        "is_judged": bool(read("is_judged", False)),
+        "is_validated": bool(read("is_validated", False)),
+        "judgement": browser_use_bounded_text(str(read("judgement", "") or ""), 1200),
+    }
+
+
+def browser_use_task_completed(result: dict[str, Any]) -> bool:
+    if result.get("is_successful") is False:
+        return False
+    if bool(result.get("is_judged")) and not bool(result.get("is_validated")):
+        return False
+    if bool(result.get("is_done")):
+        return True
+    if str(result.get("final_result") or "").strip():
+        return True
+    return False
+
+
+def browser_use_task_failure_reason(result: dict[str, Any]) -> str:
+    judgement = str(result.get("judgement") or "").strip()
+    if judgement:
+        return judgement[:500]
+    errors = result.get("errors")
+    if isinstance(errors, list):
+        cleaned = [str(item).strip() for item in errors if str(item).strip() and str(item).strip().lower() != "none"]
+        if cleaned:
+            return cleaned[-1][:500]
+    return "Browser-use Agent stopped before completing the task."
+
+
+def browser_use_bounded_list(value: Any, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        value = [value] if value else []
+    return [browser_use_bounded_text(str(item), 500) for item in value[:limit] if str(item).strip()]
+
+
+def browser_use_command_failure_message(exc: BaseException) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        return detail[:500] or f"browser-use command exited {exc.returncode}"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"browser-use command timed out after {exc.timeout}s"
+    return str(exc)[:500] or type(exc).__name__
+
+
+def browser_use_public_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        public: dict[str, Any] = {}
+        for key, value in payload.items():
+            key_text = str(key)
+            if key_text == "cli_path" or key_text.endswith("_path"):
+                public[key_text] = public_local_path_ref(value)
+            elif key_text.endswith("_paths") and isinstance(value, list):
+                public[key_text] = [public_local_path_ref(item) for item in value]
+            else:
+                public[key_text] = browser_use_public_payload(value)
+        return public
+    if isinstance(payload, list):
+        return [browser_use_public_payload(item) for item in payload]
+    return payload
+
+
+def cmd_browser_use(args: argparse.Namespace) -> int:
+    action = getattr(args, "browser_use_command", "status")
+    if action == "status":
+        payload = browser_use_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["status"] != "failed" else 1
+        print("Spark browser-use")
+        print(f"Status: {payload['status']}")
+        print(f"Package: {'available' if payload['package_available'] else 'missing'}")
+        print(f"CLI: {'available' if payload['cli_available'] else 'missing'}")
+        print(f"Status file: {payload['status_path']} ({'present' if payload['status_exists'] else 'missing'})")
+        if payload["proven_scope"]:
+            print("Proven scope: " + ", ".join(payload["proven_scope"]))
+        if payload["last_failure_reason"]:
+            print(f"Last failure: {payload['last_failure_reason']}")
+        latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
+        if latest_action:
+            action_label = str(latest_action.get("action") or "action")
+            action_status = str(latest_action.get("status") or "unknown")
+            print(f"Latest action: {action_label} -> {action_status}")
+            if latest_action.get("last_failure_reason"):
+                print(f"Latest action failure: {latest_action['last_failure_reason']}")
+        print(f"Next: {payload['next_action']}")
+        return 0 if payload["status"] != "failed" else 1
+
+    if action == "install":
+        if getattr(args, "dry_run", False):
+            print("Spark browser-use install preview")
+            print("Would run:")
+            print(f"  {sys.executable} -m pip install -e {REPO_ROOT}[browser-use]")
+            print("  browser-use install")
+            print("  browser-use doctor")
+            print("Then run: spark browser-use probe")
+            return 0
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
+                check=True,
+                timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit(
+                f"browser-use package install failed with exit code {exc.returncode}. "
+                "Fix the Python package install, then rerun `spark browser-use install`."
+            ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"browser-use package install timed out after {exc.timeout}s. "
+                "The package download may be slow or the network unreachable."
+            ) from None
+        except OSError as exc:
+            raise SystemExit(
+                "browser-use package install could not start. "
+                "Check Python/pip availability, then rerun `spark browser-use install`."
+            ) from exc
+        cli_path = browser_use_cli_path()
+        if not cli_path:
+            raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
+        try:
+            run_browser_use_command(cli_path, "install", timeout=180)
+            run_browser_use_command(cli_path, "doctor", timeout=60)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise SystemExit(f"browser-use setup failed: {browser_use_command_failure_message(exc)}") from None
+        print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
+        return 0
+
+    if action == "probe":
+        payload = browser_use_probe_payload()
+        status_payload = browser_use_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(browser_use_public_payload(status_payload | {"probe": payload}), indent=2))
+            return 0 if status_payload["ok"] else 1
+        if status_payload["ok"]:
+            print("Browser-use is ready for the probed scope.")
+            print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
+            print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
+            print("Status file has been written.")
+            return 0
+        print("Browser-use probe failed.")
+        print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
+        print("Status file has been written.")
+        return 1
+
+    if action in {"open", "screenshot"}:
+        payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
+        if getattr(args, "json", False):
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
+            return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print(f"Browser-use {payload['action']} succeeded.")
+            if payload.get("title"):
+                print(f"Title: {payload['title']}")
+            if payload.get("final_url"):
+                print(f"URL: {payload['final_url']}")
+            if payload.get("text_excerpt"):
+                print("")
+                print(str(payload["text_excerpt"]))
+            if payload.get("screenshot_path"):
+                print("")
+                print("Screenshot has been saved to disk.")
+            return 0
+        print(f"Browser-use {action} failed.")
+        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+        return 1
+
+    if action == "task":
+        payload = browser_use_task_payload(
+            " ".join(getattr(args, "goal", []) or []).strip(),
+            start_url=str(getattr(args, "url", "") or ""),
+            max_steps=int(getattr(args, "max_steps", 25) or 25),
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
+            return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print("Browser-use task completed.")
+            if payload.get("final_result"):
+                print("")
+                print(str(payload["final_result"]))
+            if payload.get("urls"):
+                print("")
+                print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
+            print("")
+            print("Receipt has been saved to disk.")
+            return 0
+        print("Browser-use task failed.")
+        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+        return 1
+
+    raise SystemExit(f"Unknown browser-use command: {action}")
 
 
 def write_setup_runtime_config(
@@ -5396,9 +7622,18 @@ def write_setup_runtime_config(
     """Write Builder state, keychain secrets, and generated module env files."""
     builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
     keychain_report = persist_keychain_secrets(bundle, secret_values)
-    generated_envs = build_module_envs(args, modules, secret_values)
+    persist_governor_hmac_secret(secret_values)
+    managed_secret_runtime.add_setup_bridge_report(sys.modules[__name__], modules, secret_values, keychain_report)
+    generated_envs = build_module_envs(
+        args,
+        modules,
+        secret_values,
+        load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env),
+    )
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
+        env_values = strip_provider_secret_values(env_values, LLM_PROVIDER_ENV)
+        env_values = managed_secret_runtime.strip_managed_runtime_secret_values(env_values)
         env_values = preserve_level5_guardrails(module.name, env_values)
         generated_path = generated_module_env_path(module)
         write_generated_env(generated_path, env_values)
@@ -5658,6 +7893,63 @@ def print_setup_summary(
     )
 
 
+def setup_args_include_explicit_secrets(args: argparse.Namespace) -> bool:
+    secret_arg_names = (
+        "secret",
+        "bot_token",
+        "admin_telegram_ids",
+        "telegram_relay_secret",
+        "zai_api_key",
+        "openai_api_key",
+        "anthropic_api_key",
+        "openrouter_api_key",
+        "huggingface_api_key",
+        "kimi_api_key",
+        "minimax_api_key",
+        "elevenlabs_api_key",
+    )
+    return any(bool(getattr(args, name, None)) for name in secret_arg_names)
+
+
+def setup_upgrade_refresh_can_pause(
+    args: argparse.Namespace,
+    detail: str,
+    *,
+    existing_config: bool,
+    existing_modules: bool,
+) -> bool:
+    if not truthy_env(SETUP_OPTIONAL_ON_UPGRADE_ENV):
+        return False
+    if not getattr(args, "non_interactive", False):
+        return False
+    if getattr(args, "start_now", True) or getattr(args, "autostart", True):
+        return False
+    if setup_args_include_explicit_secrets(args):
+        return False
+    if "File secret backend is disabled" not in detail:
+        return False
+    return existing_config and existing_modules
+
+
+def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
+    bundle = str(getattr(args, "bundle", "telegram-starter") or "telegram-starter")
+    print("")
+    print("Spark upgrade status")
+    print("  [OK] CLI upgrade: complete")
+    print("  [PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them")
+    print("  [OK] Existing runtime: can keep running with the current setup")
+    print("")
+    print("Next when you are ready:")
+    print(f"  spark setup {bundle} --resume")
+    print("")
+    print("To review what needs attention:")
+    print("  spark doctor")
+    print("")
+    print("To keep working now:")
+    print(f"  spark start {bundle}")
+    print("  spark live status")
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     if not telegram_profile_is_default(getattr(args, "profile", None)):
@@ -5665,6 +7957,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     apply_setup_feature_aliases(args)
     setup_state: dict[str, Any] | None = None
     pending = load_pending_setup_state() if getattr(args, "resume", False) else {}
+    existing_config_before_setup = CONFIG_PATH.exists()
+    existing_installed_before_setup = load_json(REGISTRY_PATH, {})
+    existing_modules_before_setup = isinstance(existing_installed_before_setup, dict) and bool(existing_installed_before_setup)
     if pending:
         pending_bundle = str(pending.get("bundle") or "").strip()
         if pending_bundle and getattr(args, "bundle", "telegram-starter") == "telegram-starter":
@@ -5732,6 +8027,15 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 0 if ((start_ok or not start_now) and first_message_ok) else 1
     except SystemExit as exc:
         detail = str(exc)
+        if setup_upgrade_refresh_can_pause(
+            args,
+            detail,
+            existing_config=existing_config_before_setup,
+            existing_modules=existing_modules_before_setup,
+        ):
+            save_paused_setup_refresh_state("setup", detail, setup_state)
+            print_setup_upgrade_refresh_paused(args)
+            return 0
         save_pending_setup_state("setup", detail, setup_state)
         print_setup_failure_truth_screen(detail)
         raise
@@ -5807,6 +8111,7 @@ def persist_keychain_secrets(bundle: list[Module], secret_values: dict[str, str]
             backend = store_secret(secret_id, value, preferred="keychain")
             report[secret_id] = backend
             seen.add(secret_id)
+    report.update(store_provider_secrets(secret_values, LLM_PROVIDER_ENV, store_secret, skip=seen))
     for secret_id, value in secret_values.items():
         if secret_id in seen or not secret_id.startswith("telegram.profiles.") or not value:
             continue
@@ -5896,15 +8201,28 @@ def resolve_install_executable(name: str) -> str:
     )
 
 
+def _reject_custom_pip_index(args: list[str]) -> None:
+    for arg in args:
+        if arg.startswith("--index-url") or arg.startswith("--extra-index-url"):
+            raise SystemExit(
+                "Install commands must not specify custom package index URLs (--index-url / --extra-index-url). "
+                "Only the default PyPI index is allowed."
+            )
+
+
 def install_command_argv(command: str) -> list[str]:
     parts = split_single_argv_command(command, "Install command")
     executable = parts[0].lower()
     if executable in {"python", "python3"}:
         return [str(Path(sys.executable)), *parts[1:]]
     if executable in {"pip", "pip3"}:
-        return [str(Path(sys.executable)), "-m", "pip", *parts[1:]]
+        pip_args = parts[1:]
+        _reject_custom_pip_index(pip_args)
+        return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
-        return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
+        pip_args = parts[2:]
+        _reject_custom_pip_index(pip_args)
+        return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "npm":
         return [resolve_install_executable("npm"), *parts[1:]]
     raise SystemExit(
@@ -5945,10 +8263,18 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
     stdout = result.stdout or ""
     stderr = result.stderr or ""
     for raw_line in (stdout + "\n" + stderr).splitlines():
-        line = raw_line.strip()
+        line = sanitize_command_line(raw_line.strip(), redact_shareable_text)
         if not line:
             continue
         if line.startswith("> "):
+            continue
+        if line.startswith("(node:") and (
+            "DeprecationWarning" in line or "ExperimentalWarning" in line or "Warning" in line
+        ):
+            continue
+        if line.startswith("(Use `node ") and "to show where the warning was created" in line:
+            continue
+        if line.startswith("(Use `node --") and "..." in line:
             continue
         lines.append(line)
     if not lines:
@@ -5978,20 +8304,24 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
                 f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
             )
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
-    return lines[-1]
+    return select_failure_summary(lines)
 
 
 def collect_status_payload() -> dict[str, Any]:
     ensure_state_dirs()
     installed = load_json(REGISTRY_PATH, {})
     setup_state = load_json(CONFIG_PATH, {})
+    setup_refresh = pending_setup_refresh_status(load_pending_setup_state())
     if not installed:
-        return {
+        payload = {
             "ok": False,
             "summary": "No installed Spark modules recorded.",
             "repair": "Run `spark setup telegram-starter` first.",
             "modules": [],
         }
+        if setup_refresh:
+            payload["setup_refresh"] = setup_refresh
+        return payload
 
     modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
     module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
@@ -6008,9 +8338,9 @@ def collect_status_payload() -> dict[str, Any]:
     public_tracked_pids = public_diagnostic_payload(tracked_pids)
     repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
-    return {
+    payload = {
         "ok": ok,
-        "summary": "Spark CLI spike status",
+        "summary": "Spark runtime status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
         "llm": setup_state.get("llm"),
         "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
@@ -6018,6 +8348,2763 @@ def collect_status_payload() -> dict[str, Any]:
         "tracked_pids": public_tracked_pids,
         "config_dir": public_local_path_ref(CONFIG_DIR),
         "repair_hints": repair_hints,
+    }
+    if setup_refresh:
+        payload["setup_refresh"] = setup_refresh
+    return payload
+
+
+def _spark_cli_install_provenance(spark_cli_root: Path) -> dict[str, Any]:
+    provenance_path = spark_cli_root.parent.parent / "state" / "spark-cli-install-source.json"
+    payload = load_json(provenance_path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _release_lane_strict_gate(
+    compiled: dict[str, Any],
+    *,
+    spark_cli_root: Path,
+    registry_path: Path,
+    installed_path: Path,
+    critical_duplicate_truth_count: int,
+) -> dict[str, Any]:
+    registry = compiled.get("registry") if isinstance(compiled.get("registry"), dict) else {}
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    installed_modules = (
+        compiled.get("installed_modules") if isinstance(compiled.get("installed_modules"), dict) else {}
+    )
+    if not registry_modules:
+        registry = load_json(registry_path, {"modules": {}, "bundles": {}})
+        registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    if not installed_modules:
+        installed_modules = load_json(installed_path, {})
+        installed_modules = installed_modules if isinstance(installed_modules, dict) else {}
+    rows: list[dict[str, Any]] = []
+    issue_count = 0
+    dirty_repo_count = 0
+
+    def append_row(
+        module_id: str,
+        path: Path,
+        expected_commit: str | None,
+        installed_commit: str | None,
+        *,
+        provenance_commit: str | None = None,
+        provenance_source: str | None = None,
+    ) -> None:
+        nonlocal dirty_repo_count, issue_count
+        git = git_board_status(path)
+        dirty = int(git.get("dirty_tracked_count") or 0) or int(git.get("untracked_count") or 0)
+        actual_commit = str(git.get("head_commit") or "") or None or provenance_commit
+        issues: list[str] = []
+        if not git.get("available") and not provenance_commit:
+            issues.append("git_unavailable")
+        if dirty:
+            issues.append("dirty_repo")
+            dirty_repo_count += 1
+        if expected_commit and actual_commit and actual_commit.lower() != expected_commit.lower():
+            issues.append("head_differs_from_registry")
+        if expected_commit and installed_commit and installed_commit.lower() != expected_commit.lower():
+            issues.append("installed_metadata_differs_from_registry")
+        if expected_commit and not actual_commit:
+            issues.append("missing_head_commit")
+        if issues:
+            issue_count += 1
+        row = {
+            "module": module_id,
+            "path": str(path),
+            "expected_commit": expected_commit,
+            "actual_commit": actual_commit,
+            "installed_registry_commit": installed_commit,
+            "dirty_tracked_count": int(git.get("dirty_tracked_count") or 0),
+            "untracked_count": int(git.get("untracked_count") or 0),
+            "issues": issues,
+        }
+        if provenance_source:
+            row["provenance_source"] = provenance_source
+        rows.append(row)
+
+    spark_cli_git = git_board_status(spark_cli_root)
+    spark_cli_provenance = _spark_cli_install_provenance(spark_cli_root)
+    spark_cli_provenance_commit = str(spark_cli_provenance.get("source_head") or "") or None
+    spark_cli_head = str(spark_cli_git.get("head_commit") or "") or None
+    spark_cli_expected = spark_cli_head or spark_cli_provenance_commit
+    append_row(
+        "spark-cli",
+        spark_cli_root,
+        spark_cli_expected,
+        spark_cli_provenance_commit,
+        provenance_commit=spark_cli_provenance_commit,
+        provenance_source="spark-cli-install-source" if spark_cli_provenance_commit else None,
+    )
+
+    for module_id in sorted(installed_modules):
+        registry_entry = registry_modules.get(module_id)
+        registry_entry = registry_entry if isinstance(registry_entry, dict) else {}
+        if not registry_entry:
+            continue
+        expected_commit = str(registry_entry.get("commit") or "") or None
+        installed_entry = installed_modules.get(module_id)
+        installed_entry = installed_entry if isinstance(installed_entry, dict) else {}
+        installed_commit = str(installed_entry.get("registry_commit") or "") or None
+        installed_path = str(installed_entry.get("path") or installed_entry.get("source") or "")
+        if not installed_path:
+            rows.append(
+                {
+                    "module": module_id,
+                    "path": None,
+                    "expected_commit": expected_commit,
+                    "actual_commit": None,
+                    "installed_registry_commit": installed_commit,
+                    "dirty_tracked_count": None,
+                    "untracked_count": None,
+                    "issues": ["missing_installed_path"],
+                }
+            )
+            issue_count += 1
+            continue
+        append_row(module_id, Path(installed_path), expected_commit, installed_commit)
+
+    ok = dirty_repo_count == 0 and critical_duplicate_truth_count == 0 and issue_count == 0
+    return {
+        "scope": "release-lane",
+        "ok": ok,
+        "dirty_repo_count": dirty_repo_count,
+        "critical_duplicate_truth_count": critical_duplicate_truth_count,
+        "issue_count": issue_count,
+        "module_count": len(rows),
+        "rows": rows,
+    }
+
+
+def classify_r30_release_lane_rows(release_lane: dict[str, Any]) -> dict[str, Any]:
+    direct_blockers: list[dict[str, Any]] = []
+    supporting_hygiene: list[dict[str, Any]] = []
+    for row in release_lane.get("rows", []):
+        if not isinstance(row, dict) or not row.get("issues"):
+            continue
+        module = str(row.get("module") or "")
+        action = R30_RELEASE_LANE_ACTIONS.get(module, {})
+        item = {
+            "module": module,
+            "issues": list(row.get("issues") or []),
+            "expected_commit": row.get("expected_commit"),
+            "actual_commit": row.get("actual_commit"),
+            "installed_registry_commit": row.get("installed_registry_commit"),
+            "next_action": action.get(
+                "next_action",
+                "Converge owner source, registry pin, and installed runtime metadata before R30 publication.",
+            ),
+            "proof_commands": list(action.get("proof_commands") or ["spark verify --r30 --json"]),
+        }
+        if module in R30_DIRECT_RELEASE_MODULES:
+            direct_blockers.append(item)
+        else:
+            supporting_hygiene.append(item)
+    return {
+        "schema_version": "spark.r30.release_lane_classification.v0",
+        "direct_blocker_count": len(direct_blockers),
+        "supporting_hygiene_count": len(supporting_hygiene),
+        "direct_blockers": direct_blockers,
+        "supporting_hygiene": supporting_hygiene,
+    }
+
+
+def collect_r30_voice_remote_ref_audit(handoff_manifest: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(handoff_manifest, dict) or not handoff_manifest:
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit cannot run without the handoff manifest.",
+            "issues": ["missing_handoff_manifest"],
+            "refs": {},
+        }
+    candidate_ref = str(handoff_manifest.get("candidate_owner_release_branch_remote_ref") or "")
+    owner_branch = str(handoff_manifest.get("owner_branch") or "")
+    owner_ref = f"refs/heads/{owner_branch.removeprefix('origin/')}" if owner_branch.startswith("origin/") else owner_branch
+    expected_refs = {
+        "remote_main_commit": ("refs/heads/main", str(handoff_manifest.get("remote_main_commit") or "")),
+        "existing_public_ref_commit": (
+            str(handoff_manifest.get("existing_public_ref") or ""),
+            str(handoff_manifest.get("existing_public_ref_commit") or ""),
+        ),
+        "required_owner_release_base_commit": (
+            str(handoff_manifest.get("required_owner_release_base_ref") or ""),
+            str(handoff_manifest.get("required_owner_release_base_commit") or ""),
+        ),
+        "owner_branch_commit": (owner_ref, str(handoff_manifest.get("owner_branch_commit") or "")),
+    }
+    refs_to_query = sorted({ref for ref, _expected in expected_refs.values() if ref} | ({candidate_ref} if candidate_ref else set()))
+    issues: list[str] = []
+    if not refs_to_query:
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit has no refs to query.",
+            "issues": ["missing_remote_refs"],
+            "refs": {},
+        }
+    try:
+        result = subprocess.run(
+            git_ls_remote_command(R30_VOICE_REPO_URL, *refs_to_query),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit timed out.",
+            "issues": ["remote_audit_timeout"],
+            "refs": {},
+        }
+    except OSError as error:
+        return {
+            "ok": False,
+            "detail": f"Voice remote ref audit could not start git: {error}.",
+            "issues": ["remote_audit_git_unavailable"],
+            "refs": {},
+        }
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit failed.",
+            "issues": ["remote_audit_failed"],
+            "refs": {},
+            "failure_detail": detail[-1000:],
+        }
+    resolved_refs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and GIT_COMMIT_SHA_PATTERN.match(parts[0]):
+            resolved_refs[parts[1]] = parts[0].lower()
+    for key, (ref, expected_commit) in expected_refs.items():
+        if not ref:
+            issues.append(f"{key}_missing_ref")
+            continue
+        actual_commit = resolved_refs.get(ref)
+        if not actual_commit:
+            issues.append(f"{key}_remote_ref_missing:{ref}")
+        elif expected_commit.lower() != actual_commit:
+            issues.append(f"{key}_remote_mismatch:{ref}")
+    candidate_exists = bool(candidate_ref and resolved_refs.get(candidate_ref))
+    expected_candidate_exists = handoff_manifest.get("candidate_owner_release_branch_remote_exists")
+    if candidate_exists != expected_candidate_exists:
+        issues.append("candidate_owner_release_branch_remote_exists_live_mismatch")
+    return {
+        "ok": not issues,
+        "detail": (
+            "Voice remote refs still match the R30 handoff decision."
+            if not issues
+            else f"Voice remote ref audit has issues: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "refs": resolved_refs,
+        "candidate_owner_release_branch_remote_exists": candidate_exists,
+    }
+
+
+def collect_r30_voice_registry_decision_status(release_lane_classification: dict[str, Any]) -> dict[str, Any]:
+    voice_rows = [
+        row
+        for row in release_lane_classification.get("direct_blockers", [])
+        if isinstance(row, dict) and row.get("module") == "spark-voice-comms"
+    ]
+    decision_doc_exists = R30_VOICE_REGISTRY_DECISION_PATH.exists()
+    handoff_manifest_path = R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH
+    handoff_manifest_ref = str(
+        handoff_manifest_path.relative_to(REPO_ROOT) if handoff_manifest_path.is_relative_to(REPO_ROOT) else handoff_manifest_path
+    )
+    handoff_manifest = load_json(handoff_manifest_path, {})
+    handoff_manifest_present = bool(isinstance(handoff_manifest, dict) and handoff_manifest)
+    if not voice_rows:
+        return {
+            "ok": decision_doc_exists,
+            "decision": "voice_registry_converged",
+            "detail": (
+                "Voice registry truth has no R30 release-lane blocker."
+                if decision_doc_exists
+                else "Voice registry truth has no R30 release-lane blocker, but the R30 voice decision document is missing."
+            ),
+            "doc": str(R30_VOICE_REGISTRY_DECISION_PATH.relative_to(REPO_ROOT)),
+            "handoff_manifest": handoff_manifest_ref,
+            "handoff_manifest_present": handoff_manifest_present,
+        }
+
+    row = voice_rows[0]
+    manifest_issues: list[str] = []
+    required_commits = handoff_manifest.get("required_local_commits") if isinstance(handoff_manifest, dict) else None
+    proof_commands = handoff_manifest.get("proof_commands") if isinstance(handoff_manifest, dict) else None
+    owner_lane_recipe = handoff_manifest.get("owner_lane_recipe") if isinstance(handoff_manifest, dict) else None
+    changed_files = handoff_manifest.get("changed_files") if isinstance(handoff_manifest, dict) else None
+    diffstat = handoff_manifest.get("diffstat") if isinstance(handoff_manifest, dict) else None
+    owner_handoff_patch = handoff_manifest.get("owner_handoff_patch") if isinstance(handoff_manifest, dict) else None
+    remote_ref_audit = collect_r30_voice_remote_ref_audit(handoff_manifest if isinstance(handoff_manifest, dict) else {})
+    iso_utc_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+    if not handoff_manifest_present:
+        manifest_issues.append("missing_voice_owner_handoff_manifest")
+    else:
+        expected_top_level = {
+            "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
+            "status": "blocked_before_registry_or_installer_publication",
+            "module": "spark-voice-comms",
+        }
+        for key, expected in expected_top_level.items():
+            if handoff_manifest.get(key) != expected:
+                manifest_issues.append(f"{key}_mismatch")
+        if handoff_manifest.get("release") not in {
+            R30_HISTORICAL_INSTALLER_RELEASE_NAME,
+            R30_INSTALLER_RELEASE_NAME,
+        }:
+            manifest_issues.append("release_mismatch")
+        publication_boundary = str(handoff_manifest.get("publication_boundary") or "").lower()
+        voice_boundary_terms = [
+            "no voice registry pin",
+            "installed metadata",
+            "installer pin",
+            "tag",
+            "deploy",
+            "hosted publication",
+        ]
+        if not all(term in publication_boundary for term in voice_boundary_terms):
+            manifest_issues.append("publication_boundary_not_explicit")
+        if not iso_utc_pattern.match(str(handoff_manifest.get("remote_audit_at") or "")):
+            manifest_issues.append("missing_or_invalid_remote_audit_at")
+        expected_pairs = {
+            "expected_registry_commit": row.get("expected_commit"),
+            "local_head": row.get("actual_commit"),
+            "installed_registry_commit": row.get("installed_registry_commit"),
+            "decision": "owner_source_required_before_registry_pin",
+            "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
+            "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "required_owner_release_base_ref": "refs/heads/main",
+            "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "candidate_owner_release_branch": "release/r30-voice-trace-governor",
+            "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+            "candidate_owner_release_branch_remote_exists": False,
+            "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
+            "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+            "local_range": f"origin/codex/turnintent-voice-policy-20260531..{row.get('actual_commit')}",
+        }
+        for key, expected in expected_pairs.items():
+            if handoff_manifest.get(key) != expected:
+                manifest_issues.append(f"{key}_mismatch")
+        if handoff_manifest.get("existing_public_ref_final_r30_claim_allowed") is not False:
+            manifest_issues.append("existing_public_ref_not_rejected_for_final_r30_claim")
+        action_requirements = {
+            "owner_action": [
+                "current public owner base",
+                "source-owned",
+                "stable voice owner release ref",
+                "before any r30 voice registry claim",
+            ],
+            "registry_action_after_owner_source": [
+                "registry.json",
+                "after the stable owner release ref contains the required commits",
+                "local proof passes",
+            ],
+            "installed_metadata_action_after_registry": [
+                "installed runtime metadata",
+                "normal spark install/update path",
+                "not by hand-editing local state",
+            ],
+        }
+        for key, terms in action_requirements.items():
+            value = str(handoff_manifest.get(key) or "").lower()
+            for term in terms:
+                if term not in value:
+                    manifest_issues.append(f"{key}_missing:{term}")
+        if not isinstance(required_commits, list) or len(required_commits) < 2 or not all(
+            isinstance(item, dict) and item.get("commit") and item.get("subject") for item in required_commits
+        ):
+            manifest_issues.append("missing_required_voice_commits")
+        elif not all(
+            isinstance(item.get("commit_full"), str)
+            and len(str(item.get("commit_full"))) == 40
+            and str(item.get("commit_full")).startswith(str(item.get("commit")))
+            for item in required_commits
+        ):
+            manifest_issues.append("missing_required_voice_commit_full_hashes")
+        required_changed_files = [
+            "src/voice_comms_chip/runtime_state.py",
+            "src/voice_comms_chip/spark_hook.py",
+            "tests/test_runtime_state.py",
+            "tests/test_spark_hook.py",
+        ]
+        if changed_files != required_changed_files:
+            manifest_issues.append("voice_changed_files_mismatch")
+        if not isinstance(diffstat, dict):
+            manifest_issues.append("missing_voice_diffstat")
+        else:
+            expected_diffstat = {"files_changed": 4, "insertions": 731, "deletions": 8}
+            for key, expected in expected_diffstat.items():
+                if diffstat.get(key) != expected:
+                    manifest_issues.append(f"voice_diffstat_{key}_mismatch")
+        if not isinstance(owner_handoff_patch, dict):
+            manifest_issues.append("missing_voice_owner_handoff_patch")
+        else:
+            patch_ref = str(owner_handoff_patch.get("path") or "")
+            patch_path = (REPO_ROOT / patch_ref).resolve() if patch_ref else None
+            expected_patch = {
+                "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+                "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+                "line_count": 954,
+                "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+                "apply_result": "132 passed",
+                "publication_authority": False,
+            }
+            for key, expected in expected_patch.items():
+                if owner_handoff_patch.get(key) != expected:
+                    manifest_issues.append(f"voice_owner_handoff_patch_{key}_mismatch")
+            apply_check = str(owner_handoff_patch.get("apply_check") or "")
+            for term in [
+                "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                "git am docs/r30/patches/r30-voice-trace-governor.patch",
+                "git write-tree",
+                "e3e1f881497011917fd9baa4f56db811ebccff7e",
+                "PYTHONPATH=src python3 -m pytest -q",
+            ]:
+                if term not in apply_check:
+                    manifest_issues.append(f"voice_owner_handoff_patch_apply_check_missing:{term}")
+            if patch_path is None or not patch_path.exists() or not patch_path.is_file():
+                manifest_issues.append("voice_owner_handoff_patch_missing_file")
+            else:
+                try:
+                    actual_sha = sha256_file(patch_path)
+                    actual_lines = len(patch_path.read_text(encoding="utf-8", errors="replace").splitlines())
+                except OSError:
+                    actual_sha = ""
+                    actual_lines = -1
+                if actual_sha != expected_patch["sha256"]:
+                    manifest_issues.append("voice_owner_handoff_patch_sha256_mismatch")
+                if actual_lines != expected_patch["line_count"]:
+                    manifest_issues.append("voice_owner_handoff_patch_line_count_mismatch")
+        prepared_lane = handoff_manifest.get("prepared_local_release_lane")
+        if not isinstance(prepared_lane, dict):
+            manifest_issues.append("missing_prepared_local_release_lane")
+        else:
+            if not iso_utc_pattern.match(str(prepared_lane.get("proof_checked_at") or "")):
+                manifest_issues.append("missing_or_invalid_prepared_lane_proof_checked_at")
+            if prepared_lane.get("proof_result") != "132 passed":
+                manifest_issues.append("prepared_lane_proof_result_mismatch")
+            ported_commits = prepared_lane.get("ported_commits")
+            if not isinstance(ported_commits, list) or len(ported_commits) != 2:
+                manifest_issues.append("missing_prepared_lane_ported_commits")
+            else:
+                expected_ported_commits = [
+                    {
+                        "commit": "4eef348",
+                        "commit_full": "4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f",
+                        "source_commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                        "subject": "Join voice runtime state traces",
+                    },
+                    {
+                        "commit": "c502ec0",
+                        "commit_full": "c502ec096cefb48839e3279d3392343231884415",
+                        "source_commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+                        "subject": "Accept media transcription governor authority",
+                    },
+                ]
+                if ported_commits != expected_ported_commits:
+                    manifest_issues.append("prepared_lane_ported_commits_mismatch")
+        if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m pytest -q" not in proof_commands:
+            manifest_issues.append("missing_voice_pytest_proof_command")
+        if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:
+            manifest_issues.append("missing_voice_os_compile_proof_command")
+        if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json" not in proof_commands:
+            manifest_issues.append("missing_voice_registry_pin_proof_command")
+        if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json" not in proof_commands:
+            manifest_issues.append("missing_voice_r30_gate_proof_command")
+        required_owner_recipe_steps = [
+            "git fetch origin --tags",
+            "git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+            "git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323",
+            "PYTHONPATH=src python3 -m pytest -q",
+        ]
+        if not isinstance(owner_lane_recipe, list):
+            manifest_issues.append("missing_voice_owner_lane_recipe")
+        else:
+            for step in required_owner_recipe_steps:
+                if step not in owner_lane_recipe:
+                    manifest_issues.append(f"voice_owner_lane_recipe_missing:{step}")
+        runtime_truth = handoff_manifest.get("required_voice_runtime_truth_after_update")
+        if not isinstance(runtime_truth, dict):
+            manifest_issues.append("missing_required_voice_runtime_truth")
+        else:
+            required_runtime_truth = {
+                "voice_surface_mode": "egress",
+                "voice_surface_blockers": 1,
+                "voice_surface_blocker": "voice transcription is not ready",
+                "requires_confirmation_for_actions": True,
+            }
+            for key, expected in required_runtime_truth.items():
+                if runtime_truth.get(key) != expected:
+                    manifest_issues.append(f"voice_runtime_truth_{key}_mismatch")
+        if not remote_ref_audit.get("ok"):
+            manifest_issues.extend(f"remote_ref_audit:{issue}" for issue in remote_ref_audit.get("issues", []))
+    return {
+        "ok": False,
+        "decision": "owner_source_required_before_registry_pin",
+        "detail": (
+            "spark-voice-comms remains blocked for R30: port/tag the local trace/governor commits "
+            "or equivalent owner-source proof before updating registry or installer truth."
+        ),
+        "doc": str(R30_VOICE_REGISTRY_DECISION_PATH.relative_to(REPO_ROOT)),
+        "doc_present": decision_doc_exists,
+        "handoff_manifest": handoff_manifest_ref,
+        "handoff_manifest_present": handoff_manifest_present,
+        "handoff_manifest_issues": manifest_issues,
+        "expected_registry_commit": row.get("expected_commit"),
+        "local_head": row.get("actual_commit"),
+        "installed_registry_commit": row.get("installed_registry_commit"),
+        "candidate_owner_release_branch_remote_exists": (
+            handoff_manifest.get("candidate_owner_release_branch_remote_exists")
+            if isinstance(handoff_manifest, dict)
+            else None
+        ),
+        "remote_ref_audit": remote_ref_audit,
+        "remote_audit_at": handoff_manifest.get("remote_audit_at") if isinstance(handoff_manifest, dict) else None,
+        "prepared_lane_proof_checked_at": (
+            (handoff_manifest.get("prepared_local_release_lane") or {}).get("proof_checked_at")
+            if isinstance(handoff_manifest, dict) and isinstance(handoff_manifest.get("prepared_local_release_lane"), dict)
+            else None
+        ),
+        "issues": list(row.get("issues") or []),
+        "next_action": row.get("next_action"),
+        "proof_commands": list(row.get("proof_commands") or []),
+    }
+
+
+def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any]) -> dict[str, Any]:
+    doc_present = R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.exists()
+    doc_ref = str(
+        R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.relative_to(REPO_ROOT)
+        if R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.is_relative_to(REPO_ROOT)
+        else R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH
+    )
+    doc_text = ""
+    doc_issues: list[str] = []
+    if doc_present:
+        try:
+            doc_text = R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            doc_issues.append("builder_trace_lifecycle_doc_unreadable")
+    release_packet_paths = [R30_EVIDENCE_PACKET_PATH, R30_OWNER_HANDOFF_PACKET_PATH]
+    release_packet_refs: list[str] = []
+    release_packet_issues: list[str] = []
+    release_packet_text = ""
+    for path in release_packet_paths:
+        ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+        release_packet_refs.append(ref)
+        try:
+            release_packet_text += "\n" + path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            release_packet_issues.append(f"missing_builder_trace_release_packet:{ref}")
+    builder_trace = publish_handoffs.get("builder_trace_health")
+    if not isinstance(builder_trace, dict):
+        return {
+            "ok": doc_present and not doc_issues and not release_packet_issues,
+            "decision": "builder_trace_lifecycle_clear",
+            "detail": (
+                "Builder trace lifecycle has no R30 publish handoff."
+                if doc_present and not doc_issues and not release_packet_issues
+                else "Builder trace lifecycle has no R30 publish handoff, but the R30 Builder trace decision document is missing."
+            ),
+            "doc": doc_ref,
+            "doc_present": doc_present,
+            "doc_issues": doc_issues,
+            "release_packet_docs": release_packet_refs,
+            "release_packet_issues": release_packet_issues,
+        }
+
+    unresolved = int(builder_trace.get("unresolved_high_severity_open_count") or 0)
+    current_unresolved = int(builder_trace.get("current_unresolved_high_severity_open_count") or 0)
+    flags = list(builder_trace.get("flags") or [])
+    if unresolved:
+        required_doc_needles = [
+            "Status: explicit historical handoff, not closed",
+            "Do not hide or silently clear the Builder historical high-severity trace family",
+            "historical_open_high_severity_events",
+            "telegram_runtime",
+            "tool_call_ledger_recorded",
+            "blocked",
+            "high",
+            "current_unresolved_high_severity_open_count=0",
+            "This is not a fresh current-window high-severity failure.",
+            "owner-approved closure evidence",
+            str(builder_trace.get("latest_unresolved_high_severity_event_created_at") or ""),
+        ]
+        missing_needles = [needle for needle in required_doc_needles if needle and needle not in doc_text]
+        if missing_needles:
+            doc_issues.append("builder_trace_lifecycle_doc_missing_exact_family")
+        required_packet_needles = [
+            "builder_trace_health",
+            "historical_open_high_severity_events",
+            "telegram_runtime",
+            "tool_call_ledger_recorded",
+            "blocked",
+            "high",
+            "2026-06-02 09:03:25",
+            "owner",
+            "historical",
+        ]
+        missing_packet_needles = [
+            needle for needle in required_packet_needles if needle and needle not in release_packet_text
+        ]
+        if missing_packet_needles:
+            release_packet_issues.append("builder_trace_release_packet_missing_exact_family")
+    historical_handoff_carried = (
+        unresolved > 0
+        and current_unresolved == 0
+        and "historical_open_high_severity_events" in flags
+        and doc_present
+        and not doc_issues
+        and not release_packet_issues
+    )
+    ok = (
+        (unresolved == 0 and current_unresolved == 0 and doc_present and not doc_issues)
+        or historical_handoff_carried
+    )
+    ok = ok and not release_packet_issues
+    decision = (
+        "builder_trace_lifecycle_historical_handoff_carried"
+        if historical_handoff_carried
+        else "builder_trace_lifecycle_owner_closure_required"
+        if unresolved
+        else "builder_trace_lifecycle_current_clean"
+    )
+    detail = (
+        "Builder historical trace lifecycle is explicitly carried for R30: current windows are clean, "
+        "the exact historical family remains visible in the release packet, and owner-approved closure "
+        "evidence is still required before removing the handoff."
+        if historical_handoff_carried
+        else
+        "Builder historical trace lifecycle remains explicit for R30: current windows are clean, "
+        "but owner-approved closure evidence is required before removing the handoff."
+        if unresolved and current_unresolved == 0
+        else "Builder trace lifecycle has current unresolved high-severity evidence and must remain a publish blocker."
+        if current_unresolved
+        else "Builder trace lifecycle has no unresolved high-severity handoff."
+    )
+    return {
+        "ok": ok,
+        "decision": decision,
+        "detail": detail,
+        "doc": doc_ref,
+        "doc_present": doc_present,
+        "doc_issues": doc_issues,
+        "release_packet_docs": release_packet_refs,
+        "release_packet_issues": release_packet_issues,
+        "flags": flags,
+        "high_severity_open_count": int(builder_trace.get("high_severity_open_count") or 0),
+        "unresolved_high_severity_open_count": unresolved,
+        "current_unresolved_high_severity_open_count": current_unresolved,
+        "unresolved_high_severity_source_group_count": int(builder_trace.get("unresolved_high_severity_source_group_count") or 0),
+        "latest_unresolved_high_severity_event_created_at": builder_trace.get("latest_unresolved_high_severity_event_created_at"),
+    }
+
+
+def classify_r30_publish_handoff_blockers(
+    publish_handoffs: dict[str, Any],
+    *,
+    local_runtime_artifacts_handoff: dict[str, Any],
+    builder_trace_lifecycle: dict[str, Any],
+) -> dict[str, Any]:
+    families = [
+        str(family)
+        for family in publish_handoffs.get("families", [])
+        if str(family)
+    ] if isinstance(publish_handoffs.get("families"), list) else []
+    if not families:
+        families = sorted(
+            key
+            for key, value in publish_handoffs.items()
+            if isinstance(value, dict) and key not in {"families", "family_count"}
+        )
+
+    carried: list[str] = []
+    blocking: list[str] = []
+    reasons: dict[str, str] = {}
+    for family in families:
+        if family == "local_runtime_test_artifacts" and bool(local_runtime_artifacts_handoff.get("ok")):
+            carried.append(family)
+            reasons[family] = "publication-bound local runtime artifacts are covered by the R30 handoff manifest"
+            continue
+        if (
+            family == "builder_trace_health"
+            and bool(builder_trace_lifecycle.get("ok"))
+            and str(builder_trace_lifecycle.get("decision") or "") == "builder_trace_lifecycle_historical_handoff_carried"
+        ):
+            carried.append(family)
+            reasons[family] = "historical Builder trace family is explicitly carried with current windows clean"
+            continue
+        blocking.append(family)
+        reasons[family] = "owner-source or registry closure evidence is still required"
+
+    return {
+        "ok": not blocking,
+        "families": families,
+        "blocking_families": blocking,
+        "carried_families": carried,
+        "reasons": reasons,
+    }
+
+
+def collect_r30_live_status_status(status_payload: dict[str, Any]) -> dict[str, Any]:
+    modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    unhealthy = []
+    for module in modules:
+        if not isinstance(module, dict) or module.get("healthy") is True:
+            continue
+        unhealthy.append(
+            {
+                "name": str(module.get("name") or "unknown"),
+                "healthy": module.get("healthy"),
+                "detail": str(module.get("detail") or "")[:240],
+            }
+        )
+    ok = bool(status_payload.get("ok")) and not unhealthy
+    repair_hints = status_payload.get("repair_hints") if isinstance(status_payload.get("repair_hints"), list) else []
+    if ok:
+        detail = "Spark live status is green."
+    elif unhealthy:
+        names = ", ".join(item["name"] for item in unhealthy[:5])
+        detail = f"Spark live status is not green; unhealthy modules: {names}."
+    elif repair_hints:
+        detail = f"Spark live status is not green; repair hints: {'; '.join(str(item) for item in repair_hints[:3])}."
+    else:
+        summary = str(status_payload.get("summary") or "").strip()
+        detail = f"Spark live status is not green; summary: {summary or '<missing>'}."
+    return {
+        "ok": ok,
+        "detail": detail,
+        "summary": str(status_payload.get("summary") or ""),
+        "unhealthy_modules": unhealthy,
+        "repair_hints": [str(item) for item in repair_hints[:5]],
+    }
+
+
+def collect_r30_voice_runtime_truth_status(compiled: dict[str, Any]) -> dict[str, Any]:
+    voice_surface = compiled.get("voice_surface_view") if isinstance(compiled.get("voice_surface_view"), dict) else {}
+    mode = str(voice_surface.get("mode") or "")
+    blockers = [str(item) for item in voice_surface.get("blockers", [])] if isinstance(voice_surface.get("blockers"), list) else []
+    source_capability = voice_surface.get("source_capability") if isinstance(voice_surface.get("source_capability"), dict) else {}
+    source_mode = str(source_capability.get("source_mode") or "")
+    authority = voice_surface.get("authority") if isinstance(voice_surface.get("authority"), dict) else {}
+    requires_confirmation = authority.get("requires_confirmation_for_actions") is True
+    docs = [R30_EVIDENCE_PACKET_PATH, R30_VOICE_REGISTRY_DECISION_PATH]
+    doc_texts: dict[str, str] = {}
+    missing_docs = []
+    for doc in docs:
+        rel = str(doc.relative_to(REPO_ROOT) if doc.is_relative_to(REPO_ROOT) else doc)
+        try:
+            doc_texts[rel] = doc.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            missing_docs.append(rel)
+    combined = "\n".join(doc_texts.values())
+    expected_mode = f"voice_surface_mode={mode}"
+    expected_blockers = f"voice_surface_blockers={len(blockers)}"
+    issues = []
+    if not mode:
+        issues.append("missing_compiled_voice_surface_mode")
+    if missing_docs:
+        issues.append("missing_voice_truth_docs")
+    if mode and expected_mode not in combined:
+        issues.append("voice_surface_mode_doc_mismatch")
+    if expected_blockers not in combined:
+        issues.append("voice_surface_blocker_count_doc_mismatch")
+    if not requires_confirmation:
+        issues.append("voice_action_confirmation_not_required")
+    if requires_confirmation and "requires_confirmation_for_actions=true" not in combined:
+        issues.append("voice_action_confirmation_doc_mismatch")
+    for blocker in blockers:
+        if blocker not in combined:
+            issues.append(f"missing_voice_blocker_doc:{blocker}")
+    return {
+        "ok": not issues,
+        "detail": (
+            f"R30 docs match compiled voice runtime truth: mode={mode}, blockers={len(blockers)}."
+            if not issues
+            else f"R30 voice runtime truth has issues: {', '.join(issues)}."
+        ),
+        "mode": mode,
+        "source_mode": source_mode,
+        "requires_confirmation_for_actions": requires_confirmation,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "docs": sorted(doc_texts.keys()),
+        "missing_docs": missing_docs,
+        "issues": issues,
+    }
+
+
+def collect_r30_access_level5_codex_sandbox_status(
+    compiled: dict[str, Any],
+    *,
+    spawner_source_path: Path | None = None,
+    telegram_source_path: Path | None = None,
+    release_lane: dict[str, Any] | None = None,
+    check_live_env: bool = False,
+    check_docs: bool = False,
+    spark_home: Path | None = None,
+) -> dict[str, Any]:
+    installed_modules = compiled.get("installed_modules") if isinstance(compiled.get("installed_modules"), dict) else {}
+
+    def resolve_source_path(module: str, explicit_path: Path | None) -> Path | None:
+        source_path = explicit_path
+        module_record = installed_modules.get(module) if isinstance(installed_modules.get(module), dict) else {}
+        if source_path is None:
+            raw_path = str(module_record.get("source") or module_record.get("path") or "")
+            if raw_path:
+                base = Path(raw_path).expanduser()
+                source_path = base if (base / "src").exists() else base / "source"
+        if source_path is None and isinstance(release_lane, dict):
+            for row in release_lane.get("rows", []):
+                if isinstance(row, dict) and row.get("module") == module and row.get("path"):
+                    source_path = Path(str(row["path"])).expanduser()
+                    break
+        if source_path is None:
+            installed_record = load_json(SPARK_HOME / "state" / "installed.json", {}).get(module)
+            if isinstance(installed_record, dict):
+                raw_path = str(installed_record.get("source") or installed_record.get("path") or "")
+                if raw_path:
+                    base = Path(raw_path).expanduser()
+                    source_path = base if (base / "src").exists() else base / "source"
+        return source_path
+
+    spawner_path = resolve_source_path("spawner-ui", spawner_source_path)
+    telegram_path = resolve_source_path("spark-telegram-bot", telegram_source_path)
+    if spawner_path is None:
+        return {
+            "ok": False,
+            "detail": "Spawner source path is unavailable; cannot prove Level 5 Codex sandbox behavior.",
+            "issues": ["missing_spawner_source_path"],
+        }
+    if telegram_path is None:
+        return {
+            "ok": False,
+            "detail": "Telegram source path is unavailable; cannot prove /access 5 activation behavior.",
+            "issues": ["missing_telegram_source_path"],
+            "spawner_source": str(spawner_path),
+        }
+
+    def read_optional(path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    client_path = spawner_path / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.ts"
+    client_test_path = spawner_path / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.test.ts"
+    high_agency_workers_path = spawner_path / "src" / "lib" / "server" / "high-agency-workers.ts"
+    high_agency_workers_test_path = spawner_path / "src" / "lib" / "server" / "high-agency-workers.test.ts"
+    prd_auto_path = spawner_path / "src" / "lib" / "server" / "prd-auto-dispatch.ts"
+    prd_auto_test_path = spawner_path / "src" / "lib" / "server" / "prd-auto-dispatch.test.ts"
+    prd_bridge_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "+server.ts"
+    prd_bridge_test_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "clarification-policy.test.ts"
+    telegram_actions_path = telegram_path / "src" / "accessActions.ts"
+    telegram_actions_test_path = telegram_path / "tests" / "accessActions.test.ts"
+    telegram_level5_env_path = telegram_path / "src" / "level5RuntimeEnv.ts"
+    telegram_level5_env_test_path = telegram_path / "tests" / "level5RuntimeEnv.test.ts"
+    telegram_recursive_path = telegram_path / "src" / "recursive.ts"
+    telegram_recursive_test_path = telegram_path / "tests" / "recursiveLevel5RuntimeEnv.test.ts"
+    cli_access_path = REPO_ROOT / "src" / "spark_cli" / "sandbox" / "access.py"
+    cli_access_test_path = REPO_ROOT / "tests" / "test_access.py"
+
+    client_text = read_optional(client_path)
+    client_test_text = read_optional(client_test_path)
+    high_agency_workers_text = read_optional(high_agency_workers_path)
+    high_agency_workers_test_text = read_optional(high_agency_workers_test_path)
+    prd_auto_text = read_optional(prd_auto_path)
+    prd_auto_test_text = read_optional(prd_auto_test_path)
+    prd_bridge_text = read_optional(prd_bridge_path)
+    prd_bridge_test_text = read_optional(prd_bridge_test_path)
+    telegram_actions_text = read_optional(telegram_actions_path)
+    telegram_actions_test_text = read_optional(telegram_actions_test_path)
+    telegram_level5_env_text = read_optional(telegram_level5_env_path)
+    telegram_level5_env_test_text = read_optional(telegram_level5_env_test_path)
+    telegram_recursive_text = read_optional(telegram_recursive_path)
+    telegram_recursive_test_text = read_optional(telegram_recursive_test_path)
+    cli_access_text = read_optional(cli_access_path)
+    cli_access_test_text = read_optional(cli_access_test_path)
+    live_env_state: dict[str, Any] = {}
+    live_service_state: dict[str, Any] = {}
+    live_access_state: dict[str, Any] = {}
+    live_env_ok = True
+    live_services_ok = True
+    live_effective_access_ok = True
+    live_effective_codex_sandbox_ok = True
+    docs_checked: list[str] = []
+    docs_text = ""
+    docs_ok = True
+    if check_live_env:
+        from .sandbox.access import access_lane_payload, level5_env_file_state, level5_guardrails_configured_by_audit, level5_service_guardrail_state
+
+        home = spark_home or SPARK_HOME
+        live_env_state = level5_env_file_state(home=home)
+        live_env_ok = bool(live_env_state) and all(bool(item.get("exists")) and bool(item.get("ok")) for item in live_env_state.values())
+        configured = level5_guardrails_configured_by_audit(home=home)
+        live_service_state = level5_service_guardrail_state(home=home, configured=configured)
+        live_services_ok = bool(live_service_state.get("enabled"))
+        live_named_profile_services_ok = live_services_ok and not live_service_state.get("missing_or_stale_services")
+        live_access_state = access_lane_payload(level=5, home=home)
+        live_level5 = live_access_state.get("level5") if isinstance(live_access_state.get("level5"), dict) else {}
+        live_state_machine = live_access_state.get("state_machine") if isinstance(live_access_state.get("state_machine"), dict) else {}
+        live_effective_access_ok = (
+            live_access_state.get("effective_access_level") == 5
+            and bool(live_level5.get("service_enabled"))
+            and bool(live_state_machine.get("service_can_operate_whole_computer"))
+        )
+        live_effective_codex_sandbox_ok = (
+            live_level5.get("service_codex_sandbox") == "danger-full-access"
+            and live_level5.get("effective_codex_sandbox") == "danger-full-access"
+        )
+    if check_docs:
+        for path in [R30_RELEASE_PLAN_PATH, R30_EVIDENCE_PACKET_PATH]:
+            ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+            docs_checked.append(ref)
+            try:
+                docs_text += "\n" + path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                docs_ok = False
+    checks = {
+        "cli_level5_env_requires_danger_full_access": '"SPARK_CODEX_SANDBOX": "danger-full-access"' in cli_access_text,
+        "cli_lower_to_level5_transition_test_exists": "test_access_level5_transition_from_lower_telegram_levels_becomes_service_full_access" in cli_access_test_text
+        and "starting_level" in cli_access_test_text
+        and "configured_codex_sandbox" in cli_access_test_text
+        and "effective_codex_sandbox" in cli_access_test_text
+        and "service_codex_sandbox" in cli_access_test_text
+        and "danger-full-access" in cli_access_test_text,
+        "cli_lower_to_level5_repairs_stale_read_only_test_exists": "test_access_level5_transition_from_lower_levels_repairs_profile_env_despite_stale_read_only_process" in cli_access_test_text
+        and "SPARK_CODEX_SANDBOX=read-only" in cli_access_test_text
+        and "current_process_codex_sandbox" in cli_access_test_text
+        and "service_codex_sandbox" in cli_access_test_text
+        and "effective_codex_sandbox" in cli_access_test_text
+        and "danger-full-access" in cli_access_test_text,
+        "cli_level5_named_telegram_profile_env_tests_exist": "test_access_setup_level5_repairs_named_telegram_profile_guardrails" in cli_access_test_text
+        and "test_access_status_level5_blocks_stale_named_telegram_profile_guardrails" in cli_access_test_text,
+        "cli_level5_named_telegram_profile_service_tests_exist": "test_access_level5_service_proof_requires_each_named_telegram_profile_restart" in cli_access_test_text
+        and "test_access_level5_service_proof_accepts_all_named_telegram_profiles_restarted" in cli_access_test_text
+        and "missing_or_stale_services" in cli_access_test_text,
+        "client_exists": bool(client_text),
+        "client_test_exists": bool(client_test_text),
+        "client_uses_shared_sandbox_resolver": "resolveCodexSandbox" in client_text,
+        "spawner_resolver_uses_persisted_level5_env": "effectiveLevel5Env" in high_agency_workers_text
+        and "spawner-ui.env" in high_agency_workers_text
+        and "danger-full-access" in high_agency_workers_text,
+        "spawner_test_proves_stale_process_env_inherits_level5": "uses persisted Spawner Level 5 env when the service process env is stale" in high_agency_workers_test_text
+        and "SPARK_CODEX_SANDBOX: 'workspace-write'" in high_agency_workers_test_text
+        and "danger-full-access" in high_agency_workers_test_text,
+        "client_adds_default_sandbox_arg": "args.push('--sandbox', resolveCodexSandbox(options.env))" in client_text,
+        "client_honors_explicit_sandbox_arg": "SPARK_CODEX_SANDBOX: value" in client_text,
+        "client_test_proves_level5_danger_full_access": "Level 5 guardrails are active" in client_test_text
+        and "--sandbox', 'danger-full-access" in client_test_text,
+        "client_test_proves_default_workspace_write": "--sandbox', 'workspace-write" in client_test_text,
+        "prd_auto_uses_shared_sandbox_resolver": "resolveCodexSandbox" in prd_auto_text
+        and "return resolveCodexSandbox(envRecord)" in prd_auto_text,
+        "prd_auto_test_proves_level5_danger_full_access": "uses Level 5 Codex sandbox for direct mission auto-dispatch" in prd_auto_test_text
+        and "--sandbox danger-full-access" in prd_auto_test_text,
+        "prd_bridge_uses_shared_sandbox_resolver": "resolveCodexSandbox(env)" in prd_bridge_text,
+        "prd_bridge_test_proves_level5_danger_full_access": "SPARK_CODEX_SANDBOX: 'danger-full-access'" in prd_bridge_test_text
+        and "--sandbox danger-full-access" in prd_bridge_test_text,
+        "telegram_level5_action_uses_high_agency_setup": "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']" in telegram_actions_text,
+        "telegram_level5_reply_reports_active_sandbox": "effective_codex_sandbox" in telegram_actions_text
+        and "Whole-computer operator mode is active for Telegram and Spawner" in telegram_actions_text,
+        "telegram_level5_reply_reads_cli_level5_sandbox": "String(state.effective_codex_sandbox || '')" in telegram_actions_text
+        and "String(state.configured_codex_sandbox || '')" not in telegram_actions_text
+        and "stateMachine.configured_codex_sandbox" not in telegram_actions_text,
+        "telegram_test_proves_level5_setup_command": "runs Level 5 setup with high-agency guardrails and reports active services" in telegram_actions_test_text
+        and "'--enable-high-agency'" in telegram_actions_test_text
+        and "effective_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,
+        "telegram_effective_level5_runtime_env_helper_exists": "effectiveLevel5RuntimeEnv" in telegram_level5_env_text
+        and "persistedTelegramLevel5Env" in telegram_level5_env_text
+        and "spark-telegram-bot.${profile}.env" in telegram_level5_env_text
+        and "SPARK_CODEX_SANDBOX: persisted.SPARK_CODEX_SANDBOX" in telegram_level5_env_text,
+        "telegram_level5_runtime_env_test_proves_stale_read_only_promotion": "promotes stale read-only Telegram process env from persisted Level 5 guardrails" in telegram_level5_env_test_text
+        and "uses profile-specific persisted Level 5 guardrails for Telegram profiles" in telegram_level5_env_test_text
+        and "SPARK_CODEX_SANDBOX: 'read-only'" in telegram_level5_env_test_text
+        and "danger-full-access" in telegram_level5_env_test_text,
+        "telegram_spark_cli_runner_uses_effective_level5_env": "env: effectiveLevel5RuntimeEnv(process.env)" in telegram_actions_text,
+        "telegram_recursive_bridge_uses_effective_level5_env": "import { effectiveLevel5RuntimeEnv } from './level5RuntimeEnv';" in telegram_recursive_text
+        and "effectiveLevel5RuntimeEnv({ ...process.env })" in telegram_recursive_text,
+        "telegram_recursive_bridge_test_proves_effective_env": "recursive bridge subprocesses inherit effective Level 5 runtime env" in telegram_recursive_test_text
+        and "effectiveLevel5RuntimeEnv" in telegram_recursive_test_text
+        and "process\\.env" in telegram_recursive_test_text
+        and "doesNotMatch" in telegram_recursive_test_text
+        and "const env: NodeJS\\.ProcessEnv = \\{ \\.\\.\\.process\\.env \\}" in telegram_recursive_test_text,
+    }
+    if check_live_env:
+        checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
+        checks["live_level5_services_restarted_after_guardrail_configure"] = live_services_ok
+        checks["live_level5_named_telegram_profiles_restarted_after_guardrail_configure"] = live_named_profile_services_ok
+        checks["live_level5_effective_access_is_full_permission"] = live_effective_access_ok
+        checks["live_level5_effective_codex_sandbox_is_danger_full_access"] = live_effective_codex_sandbox_ok
+    if check_docs:
+        checks["docs_preserve_level5_profile_env_proof"] = docs_ok and all(
+            needle in docs_text
+            for needle in [
+                "telegram_profile:primary",
+                "telegram_profile:sparkqa-bot",
+                "live_level5_env_files_all_profiled_services_full_access",
+                "missing_or_stale_services",
+            ]
+        )
+    issues = [name for name, ok in checks.items() if not ok]
+    return {
+        "ok": not issues,
+        "detail": (
+            "Installed Spawner and Telegram sources prove Access 5 activates high-agency guardrails and all known Codex lanes inherit Level 5 danger-full-access."
+            if not issues
+            else f"Installed Access 5/Codex sources are missing evidence: {', '.join(issues)}."
+        ),
+        "spawner_source": str(spawner_path),
+        "telegram_source": str(telegram_path),
+        "files": {
+            "client": str(client_path),
+            "client_test": str(client_test_path),
+            "high_agency_workers": str(high_agency_workers_path),
+            "high_agency_workers_test": str(high_agency_workers_test_path),
+            "prd_auto": str(prd_auto_path),
+            "prd_auto_test": str(prd_auto_test_path),
+            "prd_bridge": str(prd_bridge_path),
+            "prd_bridge_test": str(prd_bridge_test_path),
+            "telegram_actions": str(telegram_actions_path),
+            "telegram_actions_test": str(telegram_actions_test_path),
+            "telegram_level5_runtime_env": str(telegram_level5_env_path),
+            "telegram_level5_runtime_env_test": str(telegram_level5_env_test_path),
+            "telegram_recursive": str(telegram_recursive_path),
+            "telegram_recursive_test": str(telegram_recursive_test_path),
+            "cli_access": str(cli_access_path),
+            "cli_access_test": str(cli_access_test_path),
+        },
+        "live_env_state": live_env_state,
+        "live_service_state": live_service_state,
+        "live_access_state": {
+            "effective_access_level": live_access_state.get("effective_access_level"),
+            "level5": {
+                "activation_state": (live_access_state.get("level5") or {}).get("activation_state")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "service_enabled": (live_access_state.get("level5") or {}).get("service_enabled")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "current_process_codex_sandbox": (live_access_state.get("level5") or {}).get("current_process_codex_sandbox")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "service_codex_sandbox": (live_access_state.get("level5") or {}).get("service_codex_sandbox")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "effective_codex_sandbox": (live_access_state.get("level5") or {}).get("effective_codex_sandbox")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+            },
+            "state_machine": {
+                "service_can_operate_whole_computer": (live_access_state.get("state_machine") or {}).get("service_can_operate_whole_computer")
+                if isinstance(live_access_state.get("state_machine"), dict)
+                else None,
+            },
+        },
+        "docs_checked": docs_checked,
+        "checks": checks,
+        "issues": issues,
+    }
+
+
+def collect_r30_owner_ref_remote_audit(manifest_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for row in manifest_rows:
+        module = str(row.get("module") or "")
+        owner_refs = row.get("owner_refs") if isinstance(row.get("owner_refs"), dict) else {}
+        audit_config = R30_OWNER_REF_AUDIT_SOURCES.get(module)
+        if not audit_config:
+            continue
+        source = str(audit_config.get("source") or "")
+        ref_map = audit_config.get("refs") if isinstance(audit_config.get("refs"), dict) else {}
+        refs_to_query = sorted({str(ref) for ref in ref_map.values() if ref})
+        check: dict[str, Any] = {
+            "module": module,
+            "ok": False,
+            "source": source,
+            "refs": {},
+            "issues": [],
+        }
+        if not refs_to_query:
+            check["issues"] = ["missing_ref_map"]
+            issues.append(f"{module}:missing_ref_map")
+            checks.append(check)
+            continue
+        try:
+            result = subprocess.run(
+                git_ls_remote_command(source, *refs_to_query),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            check["issues"] = ["remote_audit_timeout"]
+            issues.append(f"{module}:remote_audit_timeout")
+            checks.append(check)
+            continue
+        except OSError as error:
+            check["issues"] = ["remote_audit_git_unavailable"]
+            check["failure_detail"] = str(error)
+            issues.append(f"{module}:remote_audit_git_unavailable")
+            checks.append(check)
+            continue
+        if result.returncode != 0:
+            check["issues"] = ["remote_audit_failed"]
+            check["failure_detail"] = (result.stderr or result.stdout or "").strip()[-1000:]
+            issues.append(f"{module}:remote_audit_failed")
+            checks.append(check)
+            continue
+        resolved_refs: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and GIT_COMMIT_SHA_PATTERN.match(parts[0]):
+                resolved_refs[parts[1]] = parts[0].lower()
+        check["refs"] = resolved_refs
+        row_issues: list[str] = []
+        for key, ref in ref_map.items():
+            expected_commit = owner_refs.get(key)
+            if expected_commit is None:
+                continue
+            actual_commit = resolved_refs.get(str(ref))
+            if not actual_commit:
+                row_issues.append(f"missing_remote_ref:{ref}")
+            elif str(expected_commit).lower() != actual_commit:
+                row_issues.append(f"remote_ref_mismatch:{key}")
+        check["issues"] = row_issues
+        check["ok"] = not row_issues
+        if row_issues:
+            issues.extend(f"{module}:{issue}" for issue in row_issues)
+        checks.append(check)
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 owner handoff refs match live remote refs."
+            if not issues
+            else f"R30 owner handoff remote refs have issues: {', '.join(issues)}."
+        ),
+        "checks": checks,
+        "issues": issues,
+    }
+
+
+def collect_r30_handoff_manifest_status(
+    release_lane_classification: dict[str, Any],
+    *,
+    manifest_path: Path | None = None,
+    check_remote_refs: bool = False,
+) -> dict[str, Any]:
+    path = manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH
+    if not path.exists():
+        return {
+            "ok": False,
+            "path": str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path),
+            "detail": "R30 owner handoff manifest is missing.",
+            "issues": ["missing_manifest"],
+        }
+    manifest = load_json(path, {})
+    if not isinstance(manifest, dict) or not manifest:
+        return {
+            "ok": False,
+            "path": str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path),
+            "detail": "R30 owner handoff manifest is not a JSON object.",
+            "issues": ["invalid_manifest"],
+        }
+    issues: list[str] = []
+    direct_live = sorted(str(item.get("module") or "") for item in release_lane_classification.get("direct_blockers", []))
+    supporting_live = sorted(str(item.get("module") or "") for item in release_lane_classification.get("supporting_hygiene", []))
+    direct_manifest = sorted(str(item.get("module") or "") for item in manifest.get("direct_blockers", []) if isinstance(item, dict))
+    supporting_manifest = sorted(str(item.get("module") or "") for item in manifest.get("supporting_hygiene", []) if isinstance(item, dict))
+    live_direct_rows = release_lane_classification.get("direct_blockers")
+    live_direct_rows = live_direct_rows if isinstance(live_direct_rows, list) else []
+    live_supporting_rows = release_lane_classification.get("supporting_hygiene")
+    live_supporting_rows = live_supporting_rows if isinstance(live_supporting_rows, list) else []
+    manifest_direct_rows = manifest.get("direct_blockers")
+    manifest_direct_rows = manifest_direct_rows if isinstance(manifest_direct_rows, list) else []
+    manifest_supporting_rows = manifest.get("supporting_hygiene")
+    manifest_supporting_rows = manifest_supporting_rows if isinstance(manifest_supporting_rows, list) else []
+    live_rows = {
+        str(item.get("module") or ""): item
+        for item in [*live_direct_rows, *live_supporting_rows]
+        if isinstance(item, dict)
+    }
+    manifest_rows = {
+        str(item.get("module") or ""): item
+        for item in [*manifest_direct_rows, *manifest_supporting_rows]
+        if isinstance(item, dict)
+    }
+    expected_direct_owner_refs = {
+        "domain-chip-memory": {
+            "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+            "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+            "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+            "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+        },
+        "spark-intelligence-builder": {
+            "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+            "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+            "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+            "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+        },
+        "spark-telegram-bot": {
+            "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "harness_discipline_line_count_gate": None,
+            "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        },
+        "spark-voice-comms": {
+            "main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "spark_ship_2026_06_26": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "owner_branch": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+            "r30_voice_release_branch": None,
+            "registry_baseline": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+        },
+        "spawner-ui": {
+            "main": "451d009aad84142092e9a21bda7788cf07910975",
+            "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+            "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        },
+    }
+    expected_owner_handoff_patches = {
+        "domain-chip-memory": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-memory-authority-proof.patch",
+            "sha256": "58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83",
+            "line_count": 34,
+            "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+            "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+            "publication_authority": False,
+            "proof_result_terms": ["5 normalized contracts", "4 official adapters", "1 shadow adapter"],
+        },
+        "spark-intelligence-builder": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+            "sha256": "48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d",
+            "line_count": 5901,
+            "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+            "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+            "publication_authority": False,
+            "proof_result_terms": ["208 passed", "26 subtests passed"],
+        },
+        "spark-telegram-bot": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+            "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+            "line_count": 106366,
+            "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
+            "publication_authority": False,
+            "proof_result_terms": ["loop status readability and future-chip registry lookup gates passed", "build passed", "DCL creator tests passed"],
+        },
+        "spawner-ui": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+            "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+            "line_count": 2574,
+            "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+            "publication_authority": False,
+            "proof_result_terms": ["44 passed", "build passed"],
+        },
+    }
+    commit_mismatches: list[dict[str, Any]] = []
+    instruction_mismatches: list[dict[str, Any]] = []
+    owner_ref_mismatches: list[dict[str, Any]] = []
+    patch_mismatches: list[dict[str, Any]] = []
+    remote_ref_audit = (
+        collect_r30_owner_ref_remote_audit([row for row in manifest_direct_rows if isinstance(row, dict)])
+        if check_remote_refs
+        else {"ok": True, "checks": [], "issues": []}
+    )
+    for module, live_row in sorted(live_rows.items()):
+        manifest_row = manifest_rows.get(module)
+        if not manifest_row:
+            continue
+        expected_registry_commit = str(manifest_row.get("expected_registry_commit") or "")
+        local_head = str(manifest_row.get("local_head") or "")
+        live_expected = str(live_row.get("expected_commit") or "")
+        live_actual = str(live_row.get("actual_commit") or "")
+        row_mismatches: list[str] = []
+        instruction_row_mismatches: list[str] = []
+        if not expected_registry_commit:
+            row_mismatches.append("missing_expected_registry_commit")
+        elif expected_registry_commit.lower() != live_expected.lower():
+            row_mismatches.append("expected_registry_commit_mismatch")
+        if not local_head:
+            row_mismatches.append("missing_local_head")
+        elif local_head.lower() != live_actual.lower():
+            row_mismatches.append("local_head_mismatch")
+        live_next_action = str(live_row.get("next_action") or "")
+        manifest_next_action = str(manifest_row.get("next_action") or "")
+        if live_next_action and manifest_next_action != live_next_action:
+            instruction_row_mismatches.append("next_action_mismatch")
+        live_proof_commands = live_row.get("proof_commands") if isinstance(live_row.get("proof_commands"), list) else []
+        manifest_proof_commands = (
+            manifest_row.get("proof_commands") if isinstance(manifest_row.get("proof_commands"), list) else []
+        )
+        if live_proof_commands and manifest_proof_commands != live_proof_commands:
+            instruction_row_mismatches.append("proof_commands_mismatch")
+        owner_ref_expected = expected_direct_owner_refs.get(module)
+        if owner_ref_expected is not None:
+            manifest_owner_refs = manifest_row.get("owner_refs") if isinstance(manifest_row.get("owner_refs"), dict) else None
+            if manifest_owner_refs != owner_ref_expected:
+                owner_ref_mismatches.append(
+                    {
+                        "module": module,
+                        "manifest_owner_refs": manifest_owner_refs,
+                        "expected_owner_refs": owner_ref_expected,
+                    }
+                )
+        expected_patch = expected_owner_handoff_patches.get(module)
+        if expected_patch is not None:
+            patch = manifest_row.get("owner_handoff_patch") if isinstance(manifest_row.get("owner_handoff_patch"), dict) else None
+            patch_issues: list[str] = []
+            if patch is None:
+                patch_issues.append("missing_owner_handoff_patch")
+            else:
+                for key in ("patch_type", "path", "sha256", "line_count", "base_commit", "expected_tree", "publication_authority"):
+                    if patch.get(key) != expected_patch[key]:
+                        patch_issues.append(f"owner_handoff_patch_{key}_mismatch")
+                patch_ref = str(patch.get("path") or "")
+                patch_path = REPO_ROOT / patch_ref
+                if not patch_ref or not patch_path.exists() or not patch_path.is_file():
+                    patch_issues.append("owner_handoff_patch_missing_file")
+                else:
+                    try:
+                        actual_sha = sha256_file(patch_path)
+                        actual_lines = len(patch_path.read_text(encoding="utf-8", errors="replace").splitlines())
+                    except OSError:
+                        actual_sha = ""
+                        actual_lines = -1
+                    if actual_sha != expected_patch["sha256"]:
+                        patch_issues.append("owner_handoff_patch_sha256_mismatch")
+                    if actual_lines != expected_patch["line_count"]:
+                        patch_issues.append("owner_handoff_patch_line_count_mismatch")
+                apply_check = str(patch.get("apply_check") or "")
+                apply_terms = [
+                    f"git apply {expected_patch['path']}",
+                    str(expected_patch["base_commit"]),
+                    str(expected_patch["expected_tree"]),
+                    "git write-tree",
+                ]
+                if not all(term in apply_check for term in apply_terms):
+                    patch_issues.append("owner_handoff_patch_apply_check_incomplete")
+                proof_result = str(patch.get("proof_result") or "").lower()
+                if not all(str(term).lower() in proof_result for term in expected_patch["proof_result_terms"]):
+                    patch_issues.append("owner_handoff_patch_proof_result_incomplete")
+            if patch_issues:
+                patch_mismatches.append({"module": module, "issues": patch_issues})
+        if row_mismatches:
+            commit_mismatches.append(
+                {
+                    "module": module,
+                    "issues": row_mismatches,
+                    "manifest_expected_registry_commit": expected_registry_commit,
+                    "live_expected_commit": live_expected,
+                    "manifest_local_head": local_head,
+                    "live_actual_commit": live_actual,
+                }
+            )
+        if instruction_row_mismatches:
+            instruction_mismatches.append(
+                {
+                    "module": module,
+                    "issues": instruction_row_mismatches,
+                    "manifest_next_action": manifest_next_action,
+                    "live_next_action": live_next_action,
+                    "manifest_proof_commands": manifest_proof_commands,
+                    "live_proof_commands": live_proof_commands,
+                }
+            )
+    if manifest.get("release") not in {
+        R30_HISTORICAL_INSTALLER_RELEASE_NAME,
+        R30_INSTALLER_RELEASE_NAME,
+    }:
+        issues.append("release_mismatch")
+    if manifest.get("status") != "blocked_before_registry_or_installer_publication":
+        issues.append("handoff_status_not_blocked")
+    publication_boundary = str(manifest.get("publication_boundary") or "").lower()
+    owner_boundary_terms = [
+        "no push",
+        "tag",
+        "deploy",
+        "registry pin update",
+        "installer pin update",
+        "hosted publication",
+    ]
+    if not all(term in publication_boundary for term in owner_boundary_terms):
+        issues.append("publication_boundary_not_explicit")
+    if direct_manifest != direct_live:
+        issues.append("direct_blockers_mismatch")
+    if supporting_manifest != supporting_live:
+        issues.append("supporting_hygiene_mismatch")
+    if commit_mismatches:
+        issues.append("commit_metadata_mismatch")
+    if instruction_mismatches:
+        issues.append("handoff_instruction_mismatch")
+    if owner_ref_mismatches:
+        issues.append("owner_ref_mismatch")
+    if not bool(remote_ref_audit.get("ok")):
+        issues.append("owner_ref_remote_audit_mismatch")
+    if patch_mismatches:
+        issues.append("owner_handoff_patch_mismatch")
+    if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
+        issues.append("direct_local_proof_not_passed")
+    return {
+        "ok": not issues,
+        "path": str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path),
+        "detail": "R30 owner handoff manifest matches live gate classification."
+        if not issues
+        else f"R30 owner handoff manifest has issues: {', '.join(issues)}.",
+        "issues": issues,
+        "commit_mismatches": commit_mismatches,
+        "instruction_mismatches": instruction_mismatches,
+        "owner_ref_mismatches": owner_ref_mismatches,
+        "remote_ref_audit": remote_ref_audit,
+        "patch_mismatches": patch_mismatches,
+        "direct_blockers": direct_manifest,
+        "supporting_hygiene": supporting_manifest,
+    }
+
+
+def collect_r30_local_runtime_artifacts_handoff_status(
+    release_lane_classification: dict[str, Any],
+    publish_handoffs: dict[str, Any],
+    *,
+    manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    path = manifest_path or R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH
+    ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+    manifest = load_json(path, {})
+    local_runtime = publish_handoffs.get("local_runtime_test_artifacts")
+    owners = sorted(str(item) for item in local_runtime.get("owners", [])) if isinstance(local_runtime, dict) else []
+    direct_rows = release_lane_classification.get("direct_blockers")
+    direct_rows = direct_rows if isinstance(direct_rows, list) else []
+    live_rows = {str(row.get("module") or ""): row for row in direct_rows if isinstance(row, dict)}
+    expected_owner_refs = {
+        "spark-telegram-bot": {
+            "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "harness_discipline_line_count_gate": None,
+            "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        },
+        "spawner-ui": {
+            "main": "451d009aad84142092e9a21bda7788cf07910975",
+            "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+            "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        },
+    }
+    expected_owner_handoff_patches = {
+        "spark-telegram-bot": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+            "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+            "line_count": 106366,
+            "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
+            "publication_authority": False,
+            "proof_result_terms": ["loop status readability and future-chip registry lookup gates passed", "build passed", "DCL creator tests passed"],
+        },
+        "spawner-ui": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+            "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+            "line_count": 2574,
+            "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+            "publication_authority": False,
+            "proof_result_terms": ["44 passed", "build passed"],
+        },
+    }
+    issues: list[str] = []
+    mismatches: list[dict[str, Any]] = []
+    if not isinstance(manifest, dict) or not manifest:
+        return {
+            "ok": False,
+            "path": ref,
+            "detail": "R30 local runtime artifacts handoff manifest is missing or invalid.",
+            "issues": ["missing_or_invalid_manifest"],
+            "owners": owners,
+        }
+    if manifest.get("release") not in {
+        R30_HISTORICAL_INSTALLER_RELEASE_NAME,
+        R30_INSTALLER_RELEASE_NAME,
+    }:
+        issues.append("release_mismatch")
+    if manifest.get("status") != "blocked_before_registry_or_installer_publication":
+        issues.append("handoff_status_not_blocked")
+    publication_boundary = str(manifest.get("publication_boundary") or "").lower()
+    local_runtime_boundary_terms = [
+        "no telegram",
+        "spawner registry pin",
+        "installed metadata",
+        "installer pin",
+        "tag",
+        "deploy",
+        "hosted publication",
+    ]
+    if not all(term in publication_boundary for term in local_runtime_boundary_terms):
+        issues.append("publication_boundary_not_explicit")
+    manifest_modules = manifest.get("artifacts")
+    manifest_modules = manifest_modules if isinstance(manifest_modules, list) else []
+    manifest_names = sorted(str(item.get("module") or "") for item in manifest_modules if isinstance(item, dict))
+    resolved_local_runtime_artifacts = not owners
+    if manifest_names != owners and not resolved_local_runtime_artifacts:
+        issues.append("local_runtime_owners_mismatch")
+    for item in manifest_modules:
+        if not isinstance(item, dict):
+            issues.append("invalid_artifact_row")
+            continue
+        module = str(item.get("module") or "")
+        live = live_rows.get(module)
+        if live is None:
+            if resolved_local_runtime_artifacts:
+                live = {
+                    "expected_commit": item.get("expected_registry_commit"),
+                    "actual_commit": item.get("local_head"),
+                    "installed_registry_commit": item.get("installed_registry_commit"),
+                }
+            else:
+                mismatches.append({"module": module, "issues": ["missing_live_release_lane_row"]})
+                continue
+        row_issues: list[str] = []
+        if item.get("expected_registry_commit") != live.get("expected_commit"):
+            row_issues.append("expected_registry_commit_mismatch")
+        if item.get("local_head") != live.get("actual_commit"):
+            row_issues.append("local_head_mismatch")
+        if item.get("installed_registry_commit") != live.get("installed_registry_commit"):
+            row_issues.append("installed_registry_commit_mismatch")
+        if item.get("local_proof") != "passed":
+            row_issues.append("local_proof_not_passed")
+        owner_action = str(item.get("owner_action") or "").lower()
+        if "current owner release base" not in owner_action or "before registry movement" not in owner_action:
+            row_issues.append("owner_action_missing_current_owner_release_base")
+        proof_commands = item.get("proof_commands") if isinstance(item.get("proof_commands"), list) else []
+        if not proof_commands:
+            row_issues.append("missing_proof_commands")
+        if item.get("owner_refs") != expected_owner_refs.get(module):
+            row_issues.append("owner_refs_mismatch")
+        expected_patch = expected_owner_handoff_patches.get(module)
+        if expected_patch is not None:
+            patch = item.get("owner_handoff_patch") if isinstance(item.get("owner_handoff_patch"), dict) else None
+            if patch is None:
+                row_issues.append("missing_owner_handoff_patch")
+            else:
+                for key, expected_value in expected_patch.items():
+                    if key == "proof_result_terms":
+                        continue
+                    if patch.get(key) != expected_value:
+                        row_issues.append(f"owner_handoff_patch_{key}_mismatch")
+                patch_ref = str(patch.get("path") or "")
+                patch_path = REPO_ROOT / patch_ref
+                if not patch_ref or not patch_path.exists():
+                    row_issues.append("owner_handoff_patch_missing_file")
+                else:
+                    if sha256_file(patch_path) != expected_patch["sha256"]:
+                        row_issues.append("owner_handoff_patch_sha256_mismatch")
+                    line_count = len(patch_path.read_text(encoding="utf-8").splitlines())
+                    if line_count != expected_patch["line_count"]:
+                        row_issues.append("owner_handoff_patch_line_count_mismatch")
+                apply_check = str(patch.get("apply_check") or "")
+                apply_terms = [
+                    f"git apply {expected_patch['path']}",
+                    str(expected_patch["base_commit"]),
+                    str(expected_patch["expected_tree"]),
+                    "git write-tree",
+                ]
+                if not all(term in apply_check for term in apply_terms):
+                    row_issues.append("owner_handoff_patch_apply_check_incomplete")
+                proof_result = str(patch.get("proof_result") or "").lower()
+                proof_terms = expected_patch.get("proof_result_terms") if isinstance(expected_patch.get("proof_result_terms"), list) else []
+                if not all(str(term).lower() in proof_result for term in proof_terms):
+                    row_issues.append("owner_handoff_patch_proof_result_incomplete")
+        required_subjects = item.get("required_terminal_subjects") if isinstance(item.get("required_terminal_subjects"), list) else []
+        for subject in R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS.get(module, []):
+            if subject not in required_subjects:
+                row_issues.append(f"missing_required_subject:{subject}")
+        if not isinstance(item.get("commit_count"), int) or int(item.get("commit_count") or 0) <= 0:
+            row_issues.append("missing_commit_count")
+        if not isinstance(item.get("changed_file_count"), int) or int(item.get("changed_file_count") or 0) <= 0:
+            row_issues.append("missing_changed_file_count")
+        first_local_commit = str(item.get("first_local_commit") or "")
+        if not GIT_COMMIT_SHA_PATTERN.match(first_local_commit):
+            row_issues.append("missing_first_local_commit")
+        last_local_commit = str(item.get("last_local_commit") or "")
+        if not GIT_COMMIT_SHA_PATTERN.match(last_local_commit):
+            row_issues.append("missing_last_local_commit")
+        elif last_local_commit != item.get("local_head"):
+            row_issues.append("last_local_commit_mismatch")
+        source_path_value = str(live.get("path") or "")
+        local_range = str(item.get("local_range") or "")
+        if source_path_value:
+            source_path = Path(source_path_value)
+            git_range = collect_r30_local_runtime_git_range_status(source_path, local_range)
+            if not git_range.get("ok"):
+                row_issues.extend(str(issue) for issue in git_range.get("issues", []))
+            else:
+                if item.get("commit_count") != git_range.get("commit_count"):
+                    row_issues.append("commit_count_mismatch")
+                if item.get("changed_file_count") != git_range.get("changed_file_count"):
+                    row_issues.append("changed_file_count_mismatch")
+                if item.get("first_local_commit") != git_range.get("first_local_commit"):
+                    row_issues.append("first_local_commit_mismatch")
+        if row_issues:
+            mismatches.append({"module": module, "issues": row_issues})
+    if mismatches:
+        issues.append("artifact_metadata_mismatch")
+    return {
+        "ok": not issues,
+        "path": ref,
+        "detail": (
+            "R30 local runtime artifacts handoff manifest matches live Telegram/Spawner artifact evidence."
+            if not issues
+            else f"R30 local runtime artifacts handoff manifest has issues: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "mismatches": mismatches,
+        "owners": owners,
+        "artifacts": manifest_names,
+        "resolved_local_runtime_artifacts": resolved_local_runtime_artifacts,
+    }
+
+
+def collect_r30_owner_action_packet(
+    release_lane_classification: dict[str, Any],
+    *,
+    owner_manifest_path: Path | None = None,
+    voice_manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    owner_manifest = load_json(owner_manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH, {})
+    voice_manifest = load_json(voice_manifest_path or R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH, {})
+    owner_rows = owner_manifest.get("direct_blockers") if isinstance(owner_manifest, dict) else []
+    owner_rows = owner_rows if isinstance(owner_rows, list) else []
+    owner_by_module = {
+        str(row.get("module") or ""): row
+        for row in owner_rows
+        if isinstance(row, dict)
+    }
+    direct_rows = release_lane_classification.get("direct_blockers")
+    direct_rows = direct_rows if isinstance(direct_rows, list) else []
+    actions: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for row in direct_rows:
+        if not isinstance(row, dict):
+            issues.append("invalid_direct_blocker_row")
+            continue
+        module = str(row.get("module") or "")
+        manifest_row = owner_by_module.get(module, {})
+        owner_handoff_patch = (
+            voice_manifest.get("owner_handoff_patch")
+            if module == "spark-voice-comms" and isinstance(voice_manifest, dict)
+            else manifest_row.get("owner_handoff_patch")
+        )
+        if not isinstance(owner_handoff_patch, dict):
+            owner_handoff_patch = {}
+        action = {
+            "module": module,
+            "issues": row.get("issues") if isinstance(row.get("issues"), list) else [],
+            "expected_registry_commit": row.get("expected_commit"),
+            "local_head": row.get("actual_commit"),
+            "installed_registry_commit": row.get("installed_registry_commit"),
+            "next_action": row.get("next_action"),
+            "proof_commands": row.get("proof_commands") if isinstance(row.get("proof_commands"), list) else [],
+            "owner_refs": manifest_row.get("owner_refs") if isinstance(manifest_row.get("owner_refs"), dict) else {},
+            "owner_handoff_patch": {
+                "path": owner_handoff_patch.get("path"),
+                "base_commit": owner_handoff_patch.get("base_commit"),
+                "expected_tree": owner_handoff_patch.get("expected_tree"),
+                "sha256": owner_handoff_patch.get("sha256"),
+                "publication_authority": owner_handoff_patch.get("publication_authority"),
+            },
+            "registry_movement_allowed": False,
+        }
+        action_issues: list[str] = []
+        if not module:
+            action_issues.append("missing_module")
+        if not action["next_action"]:
+            action_issues.append("missing_next_action")
+        if not action["proof_commands"]:
+            action_issues.append("missing_proof_commands")
+        patch = action["owner_handoff_patch"]
+        if not patch.get("path") or not patch.get("base_commit") or not patch.get("expected_tree"):
+            action_issues.append("missing_owner_handoff_patch_proof")
+        if patch.get("publication_authority") is not False:
+            action_issues.append("owner_handoff_patch_publication_boundary_missing")
+        if action_issues:
+            action["action_issues"] = action_issues
+            issues.append(f"{module or '<unknown>'}:{','.join(action_issues)}")
+        actions.append(action)
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 owner action packet is ready for source-owner handoff."
+            if not issues
+            else f"R30 owner action packet has issues: {', '.join(issues)}."
+        ),
+        "direct_blocker_count": len(actions),
+        "actions": actions,
+        "issues": issues,
+        "publication_boundary": (
+            "Read-only handoff packet. It does not authorize push, tag, deploy, "
+            "registry pin update, installer pin update, or hosted publication."
+        ),
+    }
+
+
+def collect_r30_owner_handoff_patch_apply_status(
+    release_lane: dict[str, Any],
+    *,
+    owner_manifest_path: Path | None = None,
+    voice_manifest_path: Path | None = None,
+    temp_root: Path | None = None,
+) -> dict[str, Any]:
+    owner_manifest = load_json(owner_manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH, {})
+    voice_manifest = load_json(voice_manifest_path or R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH, {})
+    owner_rows = owner_manifest.get("direct_blockers") if isinstance(owner_manifest, dict) else []
+    owner_rows = owner_rows if isinstance(owner_rows, list) else []
+    owner_by_module = {
+        str(row.get("module") or ""): row
+        for row in owner_rows
+        if isinstance(row, dict)
+    }
+    release_rows = release_lane.get("rows") if isinstance(release_lane.get("rows"), list) else []
+    source_paths = {
+        str(row.get("module") or ""): Path(str(row.get("path") or ""))
+        for row in release_rows
+        if isinstance(row, dict) and row.get("module") and row.get("path")
+    }
+    direct_modules = [
+        str(row.get("module") or "")
+        for row in owner_rows
+        if isinstance(row, dict) and row.get("module")
+    ]
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    temp_context = tempfile.TemporaryDirectory(prefix="spark-r30-owner-patches-") if temp_root is None else None
+    root = Path(temp_context.name) if temp_context else temp_root
+    assert root is not None
+    try:
+        for module in direct_modules:
+            manifest_row = owner_by_module.get(module, {})
+            patch = (
+                voice_manifest.get("owner_handoff_patch")
+                if module == "spark-voice-comms" and isinstance(voice_manifest, dict)
+                else manifest_row.get("owner_handoff_patch")
+            )
+            patch = patch if isinstance(patch, dict) else {}
+            patch_ref = str(patch.get("path") or "")
+            patch_path = REPO_ROOT / patch_ref if patch_ref else None
+            base_commit = str(patch.get("base_commit") or "")
+            expected_tree = str(patch.get("expected_tree") or "")
+            source_path = source_paths.get(module)
+            check: dict[str, Any] = {
+                "module": module,
+                "ok": False,
+                "source_path": str(source_path) if source_path else None,
+                "patch": patch_ref,
+                "base_commit": base_commit,
+                "expected_tree": expected_tree,
+                "actual_tree": None,
+                "apply_mode": "git am" if module == "spark-voice-comms" else "git apply",
+                "issues": [],
+            }
+            row_issues: list[str] = []
+            if source_path is None or not source_path.exists():
+                row_issues.append("missing_source_path")
+            if patch_path is None or not patch_path.exists():
+                row_issues.append("missing_patch_file")
+            if not base_commit:
+                row_issues.append("missing_base_commit")
+            if not expected_tree:
+                row_issues.append("missing_expected_tree")
+            if row_issues:
+                check["issues"] = row_issues
+                issues.extend(f"{module}:{issue}" for issue in row_issues)
+                checks.append(check)
+                continue
+
+            worktree_path = root / module
+            commands = [
+                ("worktree_add", git_command("-C", str(source_path), "worktree", "add", "--detach", str(worktree_path), base_commit)),
+            ]
+            if module == "spark-voice-comms":
+                commands.append(("apply_patch", git_command("-C", str(worktree_path), "am", str(patch_path))))
+            else:
+                commands.append(("apply_patch", git_command("-C", str(worktree_path), "apply", str(patch_path))))
+            commands.extend(
+                [
+                    ("stage", git_command("-C", str(worktree_path), "add", "-A")),
+                    ("write_tree", git_command("-C", str(worktree_path), "write-tree")),
+                ]
+            )
+
+            for command_name, command in commands:
+                result = run_bounded_git_command(command)
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or "").strip()
+                    row_issues.append(f"{command_name}_failed")
+                    check["failure_detail"] = detail[-1000:]
+                    break
+                if command_name == "write_tree":
+                    actual_tree = result.stdout.strip()
+                    check["actual_tree"] = actual_tree
+                    if actual_tree != expected_tree:
+                        row_issues.append("expected_tree_mismatch")
+            if worktree_path.exists():
+                run_bounded_git_command(
+                    git_command("-C", str(source_path), "worktree", "remove", "--force", str(worktree_path))
+                )
+            check["issues"] = row_issues
+            check["ok"] = not row_issues
+            if row_issues:
+                issues.extend(f"{module}:{issue}" for issue in row_issues)
+            checks.append(check)
+    finally:
+        if temp_context is not None:
+            temp_context.cleanup()
+    return {
+        "ok": not issues,
+        "detail": (
+            "All R30 owner handoff patches apply to their recorded owner bases and produce the recorded trees."
+            if not issues
+            else f"R30 owner handoff patch apply proof has issues: {', '.join(issues)}."
+        ),
+        "checks": checks,
+        "issues": issues,
+        "publication_boundary": (
+            "Patch apply proof is read-only handoff verification. It does not authorize push, tag, deploy, "
+            "registry pin update, installer pin update, or hosted publication."
+        ),
+    }
+
+
+def collect_r30_local_runtime_git_range_status(source_path: Path, local_range: str) -> dict[str, Any]:
+    if ".." not in local_range:
+        return {"ok": False, "issues": ["invalid_local_range"]}
+    if not source_path.exists():
+        return {"ok": False, "issues": ["missing_source_path"], "path": str(source_path)}
+    commands = {
+        "commit_count": git_command("rev-list", "--count", local_range),
+        "changed_file_count": git_command("diff", "--name-only", local_range),
+        "first_local_commit": git_command("log", "--reverse", "--format=%H", local_range),
+    }
+    results: dict[str, Any] = {}
+    issues: list[str] = []
+    for name, command in commands.items():
+        try:
+            result = subprocess.run(
+                command,
+                cwd=source_path,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            issues.append(f"{name}_git_error:{exc.__class__.__name__}")
+            continue
+        if result.returncode != 0:
+            issues.append(f"{name}_git_failed")
+            continue
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if name == "commit_count":
+            results[name] = int(lines[0]) if lines and lines[0].isdigit() else None
+        elif name == "changed_file_count":
+            results[name] = len(lines)
+        elif name == "first_local_commit":
+            results[name] = lines[0] if lines else ""
+    return {"ok": not issues, "issues": issues, **results}
+
+
+def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> dict[str, Any]:
+    rows = release_lane.get("rows")
+    rows = rows if isinstance(rows, list) else []
+    cli_row = next((row for row in rows if isinstance(row, dict) and row.get("module") == "spark-cli"), {})
+    head = str(cli_row.get("actual_commit") or "")
+    short_head = head[:12] if head else ""
+    stale_heads = [
+        "788e9d98915142f70307eb8906618e94c63c3cca",
+        "788e9d989151",
+    ]
+    docs = [
+        R30_SOURCE_OWNER_AUDIT_PATH,
+        R30_OWNER_HANDOFF_PACKET_PATH,
+    ]
+    issues: list[str] = []
+    doc_refs: list[str] = []
+    combined_text = ""
+    for path in docs:
+        ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+        doc_refs.append(ref)
+        if not path.exists():
+            issues.append(f"missing_doc:{ref}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        combined_text += "\n" + text
+        for stale_head in stale_heads:
+            if stale_head in text:
+                issues.append(f"stale_cli_head:{ref}")
+                break
+        if "git rev-parse HEAD" not in text:
+            issues.append(f"missing_live_head_command:{ref}")
+    required_clauses = {
+        "level5_profile_env_proof": "live_level5_env_files_all_profiled_services_full_access",
+        "level5_effective_sandbox_fields": "effective_codex_sandbox",
+        "unattended_identity_guard": "r30_unattended_identity_guard",
+        "voice_action_confirmation_truth": "requires_confirmation_for_actions=true",
+        "publication_source_blockers": "source_truth_blockers",
+        "telegram_effective_sandbox_surface_proof": "Surface effective Level 5 sandbox in Telegram",
+        "cli_effective_sandbox_gate": "Require effective sandbox proof in R30 access gate",
+    }
+    for clause, needle in required_clauses.items():
+        if needle not in combined_text:
+            issues.append(f"missing_cli_handoff_clause:{clause}")
+    if not head:
+        issues.append("missing_cli_release_lane_row")
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 CLI owner handoff docs use live spark-cli head verification and contain no known stale R30 CLI head."
+            if not issues
+            else f"R30 CLI owner handoff docs are stale: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "spark_cli_head": head,
+        "spark_cli_short_head": short_head,
+        "docs": doc_refs,
+    }
+
+
+def collect_r30_local_runtime_handoff_docs_status(
+    *,
+    manifest_path: Path | None = None,
+    docs: list[Path] | None = None,
+) -> dict[str, Any]:
+    manifest_ref = manifest_path or R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH
+    manifest = load_json(manifest_ref, {})
+    doc_paths = docs or [
+        R30_RELEASE_PLAN_PATH,
+        R30_SOURCE_OWNER_AUDIT_PATH,
+        R30_OWNER_HANDOFF_PACKET_PATH,
+        R30_EVIDENCE_PACKET_PATH,
+    ]
+    artifacts = manifest.get("artifacts") if isinstance(manifest, dict) else []
+    artifacts = artifacts if isinstance(artifacts, list) else []
+    issues: list[str] = []
+    doc_refs: list[str] = []
+    if not artifacts:
+        issues.append("missing_local_runtime_artifact_manifest_rows")
+
+    doc_texts: dict[str, str] = {}
+    for path in doc_paths:
+        ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+        doc_refs.append(ref)
+        try:
+            doc_texts[ref] = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            issues.append(f"missing_doc:{ref}")
+
+    packet_ref = str(
+        R30_OWNER_HANDOFF_PACKET_PATH.relative_to(REPO_ROOT)
+        if R30_OWNER_HANDOFF_PACKET_PATH.is_relative_to(REPO_ROOT)
+        else R30_OWNER_HANDOFF_PACKET_PATH
+    )
+    for item in artifacts:
+        if not isinstance(item, dict):
+            issues.append("invalid_artifact_row")
+            continue
+        module = str(item.get("module") or "")
+        local_head = str(item.get("local_head") or "")
+        local_range = str(item.get("local_range") or "")
+        commit_count = item.get("commit_count")
+        required_subjects = item.get("required_terminal_subjects")
+        required_subjects = required_subjects if isinstance(required_subjects, list) else []
+        proof_commands = item.get("proof_commands")
+        proof_commands = proof_commands if isinstance(proof_commands, list) else []
+        if not module or not GIT_COMMIT_SHA_PATTERN.match(local_head):
+            issues.append(f"invalid_artifact_head:{module or '<missing>'}")
+            continue
+        short_head = local_head[:12]
+        for ref, text in doc_texts.items():
+            if module not in text:
+                issues.append(f"missing_artifact_module:{ref}:{module}")
+            if local_head not in text and short_head not in text:
+                issues.append(f"missing_artifact_head:{ref}:{module}")
+        packet_text = doc_texts.get(packet_ref) or "\n".join(doc_texts.values())
+        if packet_text:
+            if local_range and local_range not in packet_text:
+                issues.append(f"missing_artifact_range:{packet_ref}:{module}")
+            if isinstance(commit_count, int) and str(commit_count) not in packet_text:
+                issues.append(f"missing_artifact_commit_count:{packet_ref}:{module}")
+            for subject in required_subjects:
+                subject_text = str(subject)
+                if subject_text and subject_text not in packet_text:
+                    issues.append(f"missing_artifact_required_subject:{packet_ref}:{module}:{subject_text}")
+            for command in proof_commands:
+                command_text = str(command)
+                if command_text and command_text not in packet_text:
+                    issues.append(f"missing_artifact_proof_command:{packet_ref}:{module}:{command_text}")
+
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 local runtime handoff docs match structured artifact heads, ranges, required subjects, and proof commands."
+            if not issues
+            else f"R30 local runtime handoff docs are stale: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "docs": doc_refs,
+        "artifacts": [str(item.get("module") or "") for item in artifacts if isinstance(item, dict)],
+    }
+
+
+R30_UNATTENDED_IDENTITY_GUARD_ARGS = [
+    "setup",
+    "--non-interactive",
+    "--bot-token",
+    "fake-token",
+    "--admin-telegram-ids",
+    "12345",
+    "--llm-provider",
+    "codex",
+    "--skip-telegram-token-check",
+    "--no-autostart",
+    "--no-start-now",
+    "--skip-runtime-check",
+]
+
+
+def collect_r30_unattended_identity_guard_status(
+    *,
+    temp_home: Path | None = None,
+    run_setup: Callable[[list[str], dict[str, str]], subprocess.CompletedProcess[str]] | None = None,
+) -> dict[str, Any]:
+    def run_in_subprocess(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        pythonpath = str(REPO_ROOT / "src")
+        existing_pythonpath = env.get("PYTHONPATH")
+        if existing_pythonpath:
+            pythonpath = pythonpath + os.pathsep + existing_pythonpath
+        return subprocess.run(
+            [sys.executable, "-m", "spark_cli.cli", *argv],
+            cwd=str(REPO_ROOT),
+            env={**env, "PYTHONPATH": pythonpath},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+
+    temp_context = tempfile.TemporaryDirectory(prefix="spark-r30-unattended-") if temp_home is None else None
+    home = Path(temp_context.name if temp_context is not None else temp_home).expanduser()
+    try:
+        env = {**os.environ, "SPARK_HOME": str(home)}
+        runner = run_setup or run_in_subprocess
+        result = runner(list(R30_UNATTENDED_IDENTITY_GUARD_ARGS), env)
+        combined = f"{getattr(result, 'stdout', '')}\n{getattr(result, 'stderr', '')}"
+        forbidden_patterns = [
+            re.compile(r"fake-token"),
+            re.compile(r"BEGIN .*PRIVATE KEY"),
+            re.compile(r"SPARK_API_URL"),
+            re.compile(r"SPARK_DASHBOARD_URL"),
+        ]
+        generated_names = {"setup.json", "installed.json", "secrets.local.json", "setup.pending.json"}
+        generated_files: list[str] = []
+        forbidden_hits: list[str] = []
+        for root in [home / "config", home / "state", home / "logs"]:
+            if not root.exists():
+                continue
+            for path in sorted(item for item in root.rglob("*") if item.is_file()):
+                rel = str(path.relative_to(home))
+                if path.parent == home / "config" / "modules" or path.name in generated_names:
+                    generated_files.append(rel)
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                if any(pattern.search(text) for pattern in forbidden_patterns):
+                    forbidden_hits.append(rel)
+        checks = {
+            "exit_code_2": getattr(result, "returncode", None) == 2,
+            "blocked_identity_access_mutation": "identity_access_mutation" in combined,
+            "no_generated_module_or_state_files": not generated_files,
+            "no_secret_or_dashboard_residue": not forbidden_hits,
+        }
+        issues = [name for name, ok in checks.items() if not ok]
+        return {
+            "ok": not issues,
+            "detail": (
+                "R30 unattended identity setup smoke fails closed before generated config/state writes."
+                if not issues
+                else f"R30 unattended identity setup smoke has issues: {', '.join(issues)}."
+            ),
+            "issues": issues,
+            "checks": checks,
+            "exit_code": getattr(result, "returncode", None),
+            "stdout_contains_identity_access_mutation": "identity_access_mutation" in combined,
+            "generated_files": generated_files,
+            "forbidden_hits": forbidden_hits,
+        }
+    finally:
+        if temp_context is not None:
+            temp_context.cleanup()
+
+
+def collect_r30_docs_status(*, repo_root: Path | None = None) -> dict[str, Any]:
+    root = repo_root or REPO_ROOT
+    missing = [path for path in R30_REQUIRED_DOCS if not (root / path).exists()]
+    return {
+        "ok": not missing,
+        "detail": (
+            "R30 documentation packet is present."
+            if not missing
+            else f"Missing R30 docs: {', '.join(missing)}."
+        ),
+        "required_docs": list(R30_REQUIRED_DOCS),
+        "missing": missing,
+    }
+
+
+def collect_r30_release_gate_payload(
+    *,
+    desktop: Path | None = None,
+    spark_home: Path | None = None,
+    registry_path: Path | None = None,
+    hosted: bool = False,
+) -> dict[str, Any]:
+    desktop = desktop or (Path.home() / "Desktop")
+    spark_home = spark_home or SPARK_HOME
+    registry_path = registry_path or LOCAL_REGISTRY_PATH
+    installed_path = spark_home / "state" / "installed.json"
+
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    written = write_compiled_outputs(spark_home / "state" / "system-map", compiled)
+    os_summary = compile_summary(compiled, written)
+    repo_board = os_summary.get("repo_board") if isinstance(os_summary.get("repo_board"), dict) else {}
+    publish_handoffs = os_summary.get("publish_handoffs") if isinstance(os_summary.get("publish_handoffs"), dict) else {}
+    critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    dirty_repo_count = int(repo_board.get("dirty_repo_count") or 0)
+    blocked_release_count = int(repo_board.get("blocked_release_count") or 0)
+    release_lane = _release_lane_strict_gate(
+        compiled,
+        spark_cli_root=REPO_ROOT,
+        registry_path=registry_path,
+        installed_path=installed_path,
+        critical_duplicate_truth_count=critical_duplicate_truth_count,
+    )
+    release_lane_classification = classify_r30_release_lane_rows(release_lane)
+    os_compile_status = classify_r30_os_compile_status(repo_board, release_lane)
+    handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification, check_remote_refs=True)
+    local_runtime_artifacts_handoff = collect_r30_local_runtime_artifacts_handoff_status(
+        release_lane_classification,
+        publish_handoffs,
+    )
+    cli_owner_handoff_docs = collect_r30_cli_owner_handoff_docs_status(release_lane)
+    local_runtime_handoff_docs = collect_r30_local_runtime_handoff_docs_status()
+    voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
+    owner_action_packet = collect_r30_owner_action_packet(release_lane_classification)
+    owner_handoff_patch_apply = collect_r30_owner_handoff_patch_apply_status(release_lane)
+    builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
+    publish_handoff_blockers = classify_r30_publish_handoff_blockers(
+        publish_handoffs,
+        local_runtime_artifacts_handoff=local_runtime_artifacts_handoff,
+        builder_trace_lifecycle=builder_trace_lifecycle,
+    )
+    access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(
+        compiled,
+        release_lane=release_lane,
+        check_live_env=True,
+        check_docs=True,
+    )
+    unattended_identity_guard = collect_r30_unattended_identity_guard_status()
+    live_status = collect_r30_live_status_status(collect_status_payload())
+    voice_runtime_truth = collect_r30_voice_runtime_truth_status(compiled)
+    registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
+    local_installers = collect_installer_integrity_payload(hosted=False)
+    hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
+    installer_source = installer_manifest_payload().get("source", {})
+    installer_release = str(installer_source.get("releaseName") or "")
+    installer_ref = str(installer_source.get("ref") or "")
+    installer_pins_are_r30 = installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME
+    merged_source_truth = collect_r30_merged_source_truth_status(registry_path=registry_path)
+    source_truth_ready, source_truth_blockers, historical_handoffs_superseded = evaluate_r30_source_truth(
+        merged_source_truth=merged_source_truth,
+        cli_owner_handoff_docs=cli_owner_handoff_docs,
+        local_runtime_handoff_docs=local_runtime_handoff_docs,
+        release_lane=release_lane,
+        registry_pins=registry_pins,
+    )
+    historical = present_r30_historical_handoffs(
+        superseded=historical_handoffs_superseded,
+        owner_manifest=handoff_manifest, runtime_artifacts=local_runtime_artifacts_handoff,
+        voice=voice_registry_decision, owner_actions=owner_action_packet,
+        patch_apply=owner_handoff_patch_apply, builder_trace=builder_trace_lifecycle,
+    )
+    publication_order_ok = (source_truth_ready and installer_pins_are_r30) or (
+        not source_truth_ready and not installer_pins_are_r30
+    )
+    publication_order_detail = (
+        "Source/registry truth is green and installer pins point at R30."
+        if source_truth_ready and installer_pins_are_r30
+        else "Source/registry truth is not green yet, and installer pins have not been advanced to R30."
+        if not source_truth_ready and not installer_pins_are_r30
+        else "Installer pins point at R30 before source/registry truth is green."
+        if not source_truth_ready and installer_pins_are_r30
+        else "Source/registry truth is green, but installer pins have not been advanced to R30."
+    )
+    r30_docs = collect_r30_docs_status()
+    missing_docs = list(r30_docs.get("missing") or [])
+    handoff_families = list(publish_handoffs.get("families") or [])
+
+    checks = [
+        {
+            "name": "r30_docs",
+            "ok": bool(r30_docs.get("ok")),
+            "detail": r30_docs.get("detail", "R30 documentation packet"),
+            "required_docs": r30_docs.get("required_docs", []),
+            "missing": missing_docs,
+        },
+        {
+            "name": "os_compile",
+            **os_compile_status,
+        },
+        {
+            "name": "r30_live_status",
+            "ok": bool(live_status.get("ok")),
+            "detail": live_status.get("detail", "Spark live status proof"),
+            "summary": live_status,
+        },
+        {
+            "name": "r30_merged_source_truth",
+            "ok": bool(merged_source_truth.get("ok")),
+            "detail": merged_source_truth.get("detail", "R30 merged source truth"),
+            "summary": merged_source_truth,
+        },
+        {
+            "name": "publish_handoffs",
+            "ok": bool(publish_handoff_blockers.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                "No blocking publish handoffs remain."
+                if bool(publish_handoff_blockers.get("ok"))
+                else "Historical publish handoffs are preserved but superseded by exact merged-source truth."
+                if historical_handoffs_superseded
+                else f"Blocking publish handoffs: {', '.join(publish_handoff_blockers.get('blocking_families') or [])}."
+            ),
+            "families": handoff_families,
+            "blocking_families": publish_handoff_blockers.get("blocking_families", []),
+            "carried_families": publish_handoff_blockers.get("carried_families", []),
+            "summary": publish_handoffs,
+        },
+        {
+            "name": "owner_handoff_manifest",
+            **historical["owner_manifest"],
+            "summary": handoff_manifest,
+        },
+        {
+            "name": "r30_local_runtime_artifacts_handoff",
+            **historical["runtime_artifacts"],
+            "summary": local_runtime_artifacts_handoff,
+        },
+        {
+            "name": "r30_cli_owner_handoff_docs",
+            "ok": bool(cli_owner_handoff_docs.get("ok")),
+            "detail": cli_owner_handoff_docs.get("detail", "R30 CLI owner handoff docs"),
+            "summary": cli_owner_handoff_docs,
+        },
+        {
+            "name": "r30_local_runtime_handoff_docs",
+            "ok": bool(local_runtime_handoff_docs.get("ok")),
+            "detail": local_runtime_handoff_docs.get("detail", "R30 local runtime handoff docs"),
+            "summary": local_runtime_handoff_docs,
+        },
+        {
+            "name": "release_lane",
+            "ok": bool(release_lane.get("ok")),
+            "detail": (
+                f"{int(release_lane.get('dirty_repo_count') or 0)} dirty release repos; "
+                f"{int(release_lane.get('issue_count') or 0)} release-lane issues "
+                f"({release_lane_classification['direct_blocker_count']} direct R30, "
+                f"{release_lane_classification['supporting_hygiene_count']} supporting)"
+            ),
+            "summary": release_lane,
+            "classification": release_lane_classification,
+            "direct_blockers": [row.get("module") for row in release_lane_classification.get("direct_blockers", [])],
+            "supporting_hygiene": [row.get("module") for row in release_lane_classification.get("supporting_hygiene", [])],
+        },
+        {
+            "name": "r30_voice_registry_decision",
+            **historical["voice"],
+            "summary": voice_registry_decision,
+        },
+        {
+            "name": "r30_owner_action_packet",
+            **historical["owner_actions"],
+            "summary": owner_action_packet,
+        },
+        {
+            "name": "r30_owner_handoff_patch_apply",
+            **historical["patch_apply"],
+            "summary": owner_handoff_patch_apply,
+        },
+        {
+            "name": "r30_voice_runtime_truth",
+            "ok": bool(voice_runtime_truth.get("ok")),
+            "detail": voice_runtime_truth.get("detail", "R30 voice runtime truth"),
+            "summary": voice_runtime_truth,
+        },
+        {
+            "name": "r30_builder_trace_lifecycle",
+            **historical["builder_trace"],
+            "summary": builder_trace_lifecycle,
+        },
+        {
+            "name": "r30_access_level5_codex_sandbox",
+            "ok": bool(access_level5_codex_sandbox.get("ok")),
+            "detail": access_level5_codex_sandbox.get("detail", "R30 Access 5 Codex sandbox evidence"),
+            "summary": access_level5_codex_sandbox,
+        },
+        {
+            "name": "r30_unattended_identity_guard",
+            "ok": bool(unattended_identity_guard.get("ok")),
+            "detail": unattended_identity_guard.get("detail", "R30 unattended identity setup guard"),
+            "summary": unattended_identity_guard,
+        },
+        {
+            "name": "registry_pins",
+            "ok": bool(registry_pins.get("ok")),
+            "detail": registry_pins.get("summary", "registry pin drift check"),
+            "failures": [check for check in registry_pins.get("checks", []) if not check.get("ok")],
+        },
+        {
+            "name": "local_installers",
+            "ok": bool(local_installers.get("ok")),
+            "detail": local_installers.get("summary", "local installer integrity"),
+        },
+        {
+            "name": "publication_order",
+            "ok": publication_order_ok,
+            "detail": publication_order_detail,
+            "source_truth_ready": source_truth_ready,
+            "source_truth_blockers": source_truth_blockers,
+            "installer_pins_are_r30": installer_pins_are_r30,
+        },
+        {
+            "name": "r30_installer_pins",
+            "ok": installer_pins_are_r30,
+            "detail": (
+                "Installer manifest/scripts point at the R30 release id."
+                if installer_pins_are_r30
+                else f"Installer still points at {installer_release or '<missing>'} / {installer_ref or '<missing>'}."
+            ),
+            "expected_release": R30_INSTALLER_RELEASE_NAME,
+            "actual_release": installer_release,
+            "actual_ref": installer_ref,
+        },
+    ]
+    if hosted_installers is not None:
+        hosted_release_payload = (
+            hosted_installers.get("hosted_release")
+            if isinstance(hosted_installers.get("hosted_release"), dict)
+            else {}
+        )
+        hosted_release_name = str(hosted_release_payload.get("release") or "")
+        hosted_release_ref = str(hosted_release_payload.get("ref") or "")
+        hosted_release_fresh = bool(hosted_release_payload.get("fresh"))
+        hosted_r30_ready = (
+            source_truth_ready
+            and installer_pins_are_r30
+            and bool(hosted_installers.get("ok"))
+            and hosted_release_fresh
+            and hosted_release_name == R30_INSTALLER_RELEASE_NAME
+            and hosted_release_ref == R30_INSTALLER_RELEASE_NAME
+        )
+        if hosted_r30_ready:
+            hosted_publication_detail = "Hosted installer metadata, bytes, and local R30 source truth agree."
+        elif not source_truth_ready:
+            hosted_publication_detail = (
+                "Hosted installer verification is baseline-only because source/registry truth is not green: "
+                f"{', '.join(source_truth_blockers)}."
+            )
+        elif not installer_pins_are_r30:
+            hosted_publication_detail = "Hosted installer verification is baseline-only because local installer pins have not advanced to R30."
+        elif not bool(hosted_installers.get("ok")):
+            hosted_publication_detail = "Hosted installer metadata or bytes do not pass installer integrity verification."
+        else:
+            hosted_publication_detail = (
+                "Hosted installer verification is not an R30 publication proof: "
+                f"hosted release/ref is {hosted_release_name or '<missing>'}/{hosted_release_ref or '<missing>'}."
+            )
+        checks.append(
+            {
+                "name": "r30_hosted_publication_contract",
+                "ok": hosted_r30_ready,
+                "detail": hosted_publication_detail,
+                "expected_release": R30_INSTALLER_RELEASE_NAME,
+                "actual_release": hosted_release_name,
+                "actual_ref": hosted_release_ref,
+                "hosted_release_fresh": hosted_release_fresh,
+                "source_truth_ready": source_truth_ready,
+                "installer_pins_are_r30": installer_pins_are_r30,
+            }
+        )
+        checks.append(
+            {
+                "name": "hosted_installers",
+                "ok": bool(hosted_installers.get("ok")),
+                "detail": hosted_installers.get("summary", "hosted installer integrity"),
+            }
+        )
+
+    return {
+        "ok": all(bool(check.get("ok")) for check in checks),
+        "summary": "Spark R30 release gate",
+        "release": R30_INSTALLER_RELEASE_NAME,
+        "hosted": hosted,
+        "checks": checks,
+        "os_compile": {
+            "ok": dirty_repo_count == 0 and blocked_release_count == 0 and critical_duplicate_truth_count == 0,
+            "dirty_repo_count": dirty_repo_count,
+            "blocked_release_count": blocked_release_count,
+            "critical_duplicate_truth_count": critical_duplicate_truth_count,
+        },
+        "publish_handoffs": publish_handoffs,
+        "publish_handoff_blockers": publish_handoff_blockers,
+        "merged_source_truth": merged_source_truth,
+        "owner_handoff_manifest": handoff_manifest,
+        "local_runtime_artifacts_handoff": local_runtime_artifacts_handoff,
+        "cli_owner_handoff_docs": cli_owner_handoff_docs,
+        "local_runtime_handoff_docs": local_runtime_handoff_docs,
+        "voice_registry_decision": voice_registry_decision,
+        "owner_action_packet": owner_action_packet,
+        "owner_handoff_patch_apply": owner_handoff_patch_apply,
+        "voice_runtime_truth": voice_runtime_truth,
+        "builder_trace_lifecycle": builder_trace_lifecycle,
+        "access_level5_codex_sandbox": access_level5_codex_sandbox,
+        "unattended_identity_guard": unattended_identity_guard,
+        "live_status": live_status,
+        "release_lane": release_lane,
+        "release_lane_classification": release_lane_classification,
+        "source_truth_ready": source_truth_ready,
+        "source_truth_blockers": source_truth_blockers,
+        "installer_pins_are_r30": installer_pins_are_r30,
+        "registry_pins": registry_pins,
+        "local_installers": local_installers,
+        "hosted_installers": hosted_installers,
+    }
+
+
+def _relative_file_hashes(root: Path) -> dict[str, str]:
+    if not root.exists() or not root.is_dir():
+        return {}
+    hashes: dict[str, str] = {}
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        rel = path.relative_to(root).as_posix()
+        hashes[rel] = sha256_file(path)
+    return hashes
+
+
+def collect_harness_vendor_integrity_payload(
+    *,
+    installed: dict[str, Any] | None = None,
+    canonical_module: str = "spark-harness-core",
+) -> dict[str, Any]:
+    installed_payload = installed if installed is not None else load_json(REGISTRY_PATH, {})
+    installed_modules = installed_payload if isinstance(installed_payload, dict) else {}
+    canonical_entry = installed_modules.get(canonical_module)
+    canonical_entry = canonical_entry if isinstance(canonical_entry, dict) else {}
+    canonical_path_raw = str(canonical_entry.get("path") or canonical_entry.get("source") or "").strip()
+    canonical_path = Path(canonical_path_raw) if canonical_path_raw else None
+    checks: list[dict[str, Any]] = []
+    if not canonical_path or not canonical_path.exists():
+        return {
+            "ok": False,
+            "summary": "Harness Core vendor integrity",
+            "canonical_module": canonical_module,
+            "canonical_path": canonical_path_raw,
+            "checks": [
+                {
+                    "name": canonical_module,
+                    "ok": False,
+                    "detail": "Installed canonical Harness Core source is missing.",
+                }
+            ],
+        }
+
+    canonical_git = git_board_status(canonical_path)
+    canonical_commit = str(canonical_git.get("head_commit") or "")
+    canonical_hashes = {
+        section: _relative_file_hashes(canonical_path / section)
+        for section in ("schemas", "ts-dist")
+    }
+    for name, entry in sorted(installed_modules.items()):
+        if name == canonical_module or not isinstance(entry, dict):
+            continue
+        module_path_raw = str(entry.get("path") or entry.get("source") or "").strip()
+        if not module_path_raw:
+            continue
+        vendor_root = Path(module_path_raw) / "vendor" / "harness-core"
+        if not vendor_root.exists():
+            continue
+        manifest_text = ""
+        manifest_path = vendor_root / "SOURCE_MANIFEST.md"
+        if manifest_path.exists():
+            manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace")
+        manifest_commit_match = re.search(r"Source commit:\s*`?([0-9a-fA-F]{40})`?", manifest_text)
+        manifest_commit = manifest_commit_match.group(1).lower() if manifest_commit_match else ""
+        issues: list[str] = []
+        if canonical_commit and manifest_commit and manifest_commit != canonical_commit.lower():
+            issues.append("manifest_commit_differs_from_canonical")
+        elif not manifest_commit:
+            issues.append("missing_manifest_commit")
+        section_counts: dict[str, dict[str, int]] = {}
+        for section, expected in canonical_hashes.items():
+            actual = _relative_file_hashes(vendor_root / section)
+            missing = sorted(set(expected) - set(actual))
+            extra = sorted(set(actual) - set(expected))
+            changed = sorted(path for path in set(expected) & set(actual) if expected[path] != actual[path])
+            if missing:
+                issues.append(f"{section}_missing_files")
+            if extra:
+                issues.append(f"{section}_extra_files")
+            if changed:
+                issues.append(f"{section}_hash_mismatch")
+            section_counts[section] = {
+                "expected_files": len(expected),
+                "actual_files": len(actual),
+                "missing_files": len(missing),
+                "extra_files": len(extra),
+                "changed_files": len(changed),
+            }
+        checks.append(
+            {
+                "name": str(name),
+                "path": str(vendor_root),
+                "ok": not issues,
+                "manifest_commit": manifest_commit,
+                "canonical_commit": canonical_commit,
+                "sections": section_counts,
+                "issues": issues,
+                "detail": "vendored Harness Core matches canonical source"
+                if not issues
+                else "vendored Harness Core differs from canonical source",
+            }
+        )
+    if not checks:
+        checks.append(
+            {
+                "name": "harness-core-vendors",
+                "ok": False,
+                "detail": "No installed modules expose vendor/harness-core for comparison.",
+            }
+        )
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "summary": "Harness Core vendor integrity",
+        "canonical_module": canonical_module,
+        "canonical_path": str(canonical_path),
+        "canonical_commit": canonical_commit,
+        "checks": checks,
+    }
+
+
+def collect_drift_sentinel_payload(
+    *,
+    desktop: Path | None = None,
+    spark_home: Path | None = None,
+    registry_path: Path | None = None,
+) -> dict[str, Any]:
+    desktop = desktop or (Path.home() / "Desktop")
+    spark_home = spark_home or SPARK_HOME
+    registry_path = registry_path or LOCAL_REGISTRY_PATH
+    installed_path = spark_home / "state" / "installed.json"
+    installed = load_json(installed_path, {})
+    registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    written = write_compiled_outputs(spark_home / "state" / "system-map", compiled)
+    os_summary = compile_summary(compiled, written)
+    repo_board = os_summary.get("repo_board") if isinstance(os_summary.get("repo_board"), dict) else {}
+    critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    release_lane = _release_lane_strict_gate(
+        compiled,
+        spark_cli_root=REPO_ROOT,
+        registry_path=registry_path,
+        installed_path=installed_path,
+        critical_duplicate_truth_count=critical_duplicate_truth_count,
+    )
+    status = collect_status_payload()
+    vendor_integrity = collect_harness_vendor_integrity_payload(installed=installed)
+    checks = [
+        {
+            "name": "registry_pins",
+            "ok": bool(registry_pins.get("ok")),
+            "detail": registry_pins.get("summary", "registry pin check"),
+        },
+        {
+            "name": "os_compile",
+            "ok": int(repo_board.get("critical_duplicate_truth_count") or 0) == 0,
+            "detail": (
+                f"{int(repo_board.get('dirty_repo_count') or 0)} dirty repos; "
+                f"{int(repo_board.get('critical_duplicate_truth_count') or 0)} critical duplicate truths"
+            ),
+        },
+        {
+            "name": "release_lane",
+            "ok": bool(release_lane.get("ok")),
+            "detail": (
+                f"{int(release_lane.get('dirty_repo_count') or 0)} dirty release repos; "
+                f"{int(release_lane.get('issue_count') or 0)} release issues"
+            ),
+        },
+        {
+            "name": "runtime_health",
+            "ok": bool(status.get("ok")),
+            "detail": status.get("summary", "runtime health"),
+        },
+        {
+            "name": "harness_vendor_integrity",
+            "ok": bool(vendor_integrity.get("ok")),
+            "detail": vendor_integrity.get("summary", "Harness Core vendor integrity"),
+        },
+    ]
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "schema_version": "spark.drift_sentinel.v1",
+        "summary": "Spark daily drift sentinel",
+        "checked_at": timestamp_now(),
+        "checks": checks,
+        "registry_pins": registry_pins,
+        "os_compile": os_summary,
+        "release_lane": release_lane,
+        "status": status,
+        "harness_vendor_integrity": vendor_integrity,
+    }
+
+
+def format_drift_sentinel_message(payload: dict[str, Any]) -> str:
+    marker = "PASS" if payload.get("ok") else "DRIFT"
+    lines = [f"Spark daily drift sentinel: {marker}"]
+    for check in payload.get("checks", []):
+        if not isinstance(check, dict):
+            continue
+        state = "OK" if check.get("ok") else "FIX"
+        lines.append(f"[{state}] {check.get('name')}: {check.get('detail')}")
+    return "\n".join(lines)
+
+
+def send_telegram_drift_sentinel_message(payload: dict[str, Any], *, profile: str | None = None) -> dict[str, Any]:
+    setup_state = load_json(CONFIG_PATH, {})
+    normalized = normalize_telegram_profile(profile or primary_telegram_profile(setup_state))
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    profile_state = profiles.get(normalized) if isinstance(profiles, dict) and isinstance(profiles.get(normalized), dict) else {}
+    token_secret = str(profile_state.get("bot_token_secret") or telegram_profile_secret_id(normalized, "bot_token"))
+    token = fetch_secret(token_secret)
+    admin_ids = split_telegram_admin_ids(str(profile_state.get("admin_ids") or ""))
+    if not admin_ids:
+        env_path = profile_state.get("env_file") if isinstance(profile_state, dict) else None
+        if env_path:
+            admin_ids = split_telegram_admin_ids(read_generated_env(Path(str(env_path))).get("ADMIN_TELEGRAM_IDS", ""))
+    if not admin_ids:
+        admin_ids = split_telegram_admin_ids(fetch_secret("telegram.admin_ids") or "")
+    if not token or not admin_ids:
+        return {
+            "ok": False,
+            "profile": normalized,
+            "detail": "Telegram bot token or admin id is not configured for drift sentinel DM.",
+        }
+    message = format_drift_sentinel_message(payload)
+    results: list[dict[str, Any]] = []
+    for chat_id in admin_ids:
+        token_part = urllib.parse.quote(extract_telegram_bot_token(token), safe=":")
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode("utf-8")
+        request = urllib.request.Request(f"https://api.telegram.org/bot{token_part}/sendMessage", data=data, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+            results.append({"chat_id": "<redacted>", "ok": bool(response_payload.get("ok"))})
+        except Exception as error:
+            results.append({"chat_id": "<redacted>", "ok": False, "error": redact_sensitive_text(str(error))})
+    return {
+        "ok": all(item.get("ok") for item in results),
+        "profile": normalized,
+        "recipients": len(admin_ids),
+        "results": results,
+    }
+
+
+def cmd_drift(args: argparse.Namespace) -> int:
+    command = getattr(args, "drift_command", None)
+    if command != "sentinel":
+        raise SystemExit("Choose a drift command, for example: spark drift sentinel")
+    payload = collect_drift_sentinel_payload(
+        desktop=Path(args.desktop).expanduser(),
+        spark_home=Path(args.spark_home).expanduser(),
+        registry_path=Path(args.registry).expanduser(),
+    )
+    if getattr(args, "dm_telegram", False):
+        payload["telegram_dm"] = send_telegram_drift_sentinel_message(payload, profile=getattr(args, "profile", None))
+        payload["ok"] = bool(payload.get("ok")) and bool(payload["telegram_dm"].get("ok"))
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_drift_sentinel_message(payload))
+        if payload.get("telegram_dm"):
+            dm = payload["telegram_dm"]
+            marker = "OK" if dm.get("ok") else "FIX"
+            print(f"[{marker}] telegram_dm: {dm.get('detail') or str(dm.get('recipients', 0)) + ' recipient(s)'}")
+    return 0 if payload.get("ok") else 1
+
+
+def os_compile_write_error_code(error: OSError) -> str:
+    if error.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+        return "output_not_writable"
+    if error.errno in {errno.ENOSPC, getattr(errno, "EDQUOT", -1)}:
+        return "storage_full"
+    if error.errno in {errno.ENOENT, errno.ENOTDIR}:
+        return "output_path_unavailable"
+    if error.errno in {errno.ENAMETOOLONG, errno.EINVAL}:
+        return "output_path_invalid"
+    return "output_write_failed"
+
+
+def os_compile_output_ref(out_dir: Path) -> str:
+    reference = public_local_path_ref(out_dir)
+    if reference in {"<spark-home>", "<spark-cli>"}:
+        return reference
+    if reference.startswith(("<spark-home>/", "<spark-cli>/")):
+        return reference
+    return "<requested-output>"
+
+
+def os_compile_write_failure_payload(out_dir: Path, error: OSError) -> dict[str, Any]:
+    error_code = os_compile_write_error_code(error)
+    repairs = {
+        "output_not_writable": "Rerun with `spark os compile --out <writable-directory>` or repair permissions for the selected output directory.",
+        "storage_full": "Free storage or rerun with `spark os compile --out <writable-directory>` on a volume with available space.",
+        "output_path_unavailable": "Create a writable parent directory or rerun with `spark os compile --out <writable-directory>`.",
+        "output_path_invalid": "Choose a shorter valid path and rerun with `spark os compile --out <writable-directory>`.",
+        "output_write_failed": "Rerun with `spark os compile --out <writable-directory>`; if it still fails, inspect directory and filesystem health locally.",
+    }
+    return {
+        "ok": False,
+        "schema_version": "spark.os_compile.write_failure.v1",
+        "summary": "Spark OS compile could not finish writing outputs.",
+        "error_code": error_code,
+        "output": os_compile_output_ref(out_dir),
+        "partial_outputs_possible": True,
+        "repair": repairs[error_code],
+        "boundary": (
+            "The operating-system error text is not reflected. Existing or partially written output files are preserved; "
+            "rerun the full compile after repairing the destination."
+        ),
     }
 
 
@@ -6027,11 +11114,52 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     registry_path = Path(args.registry).expanduser()
     out_dir = Path(args.out).expanduser()
     compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    written = write_compiled_outputs(out_dir, compiled)
+    try:
+        written = write_compiled_outputs(out_dir, compiled, validate_path=lambda path: require_write_allowed(path, safe_root=spark_write_safe_root(), subject="system-map output"))
+    except OSError as error:
+        failure = os_compile_write_failure_payload(out_dir, error)
+        if args.json:
+            print(json.dumps(failure, indent=2))
+        else:
+            summary_text = str(failure["summary"]).removesuffix(".")
+            print(f"[FIX] {summary_text} ({failure['error_code']}).")
+            print(f"Output: {failure['output']}")
+            print(f"Repair: {failure['repair']}")
+            print(f"Partial-output notice: {failure['boundary']}")
+        return 1
     summary = compile_summary(compiled, written)
+    repo_board = summary.get("repo_board") if isinstance(summary.get("repo_board"), dict) else {}
+    dirty_repo_count = int(repo_board.get("dirty_repo_count") or 0)
+    critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    strict = bool(getattr(args, "strict", False))
+    strict_scope = str(getattr(args, "strict_scope", "all") or "all")
+    if strict_scope == "release-lane":
+        release_lane_gate = _release_lane_strict_gate(
+            compiled,
+            spark_cli_root=REPO_ROOT,
+            registry_path=registry_path,
+            installed_path=spark_home / "state" / "installed.json",
+            critical_duplicate_truth_count=critical_duplicate_truth_count,
+        )
+        gate_dirty_repo_count = int(release_lane_gate.get("dirty_repo_count") or 0)
+        strict_ok = bool(release_lane_gate.get("ok"))
+    else:
+        release_lane_gate = None
+        gate_dirty_repo_count = dirty_repo_count
+        strict_ok = dirty_repo_count == 0 and critical_duplicate_truth_count == 0
+    summary["gate"] = {
+        "strict": strict,
+        "scope": strict_scope,
+        "ok": strict_ok,
+        "dirty_repo_count": gate_dirty_repo_count,
+        "broad_dirty_repo_count": dirty_repo_count,
+        "critical_duplicate_truth_count": critical_duplicate_truth_count,
+    }
+    if release_lane_gate is not None:
+        summary["gate"]["release_lane"] = release_lane_gate
     if args.json:
         print(json.dumps(summary, indent=2))
-        return 0
+        return 0 if (not strict or strict_ok) else 1
 
     print("Spark OS system map compiled")
     print(f"- modules: {summary['modules']}")
@@ -6039,10 +11167,17 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     print(f"- chip manifests: {summary['chip_manifests']}")
     print(f"- skill graphs: {summary['skill_graphs']}")
     print(f"- builder events: {summary.get('builder_event_rows') or 0}")
+    print(f"- dirty repos: {gate_dirty_repo_count}")
+    if strict_scope == "release-lane":
+        print(f"- broad dirty repos: {dirty_repo_count}")
+    print(f"- critical duplicate truths: {critical_duplicate_truth_count}")
     print(f"- gaps: {summary['gaps']}")
     print(f"- output: {out_dir}")
+    if strict:
+        print(f"- strict scope: {strict_scope}")
+        print(f"- strict gate: {'pass' if strict_ok else 'fail'}")
     print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
-    return 0
+    return 0 if (not strict or strict_ok) else 1
 
 
 def cmd_os_capabilities(args: argparse.Namespace) -> int:
@@ -6079,8 +11214,8 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
                 continue
             verdict_status = str(verdict.get("status") or "unknown")
             proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
-
     payload = {
+        "ok": True,
         "schema_version": "spark.os_capabilities.summary.v0",
         "generated_at": catalog.get("generated_at"),
         "card_count": len(cards),
@@ -6096,7 +11231,6 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-
     print("Spark OS capabilities")
     print(f"- cards: {payload['card_count']}")
     for surface, count in payload["surface_counts"].items():
@@ -6116,6 +11250,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
 
 
 def cmd_os_authority(args: argparse.Namespace) -> int:
+    output_path = resolve_os_json_output_path(json_output=args.json, output=getattr(args, "output", None), validate_path=lambda path: require_write_allowed(path, safe_root=spark_write_safe_root(), subject="Spark OS JSON output"), reject_linked_path=assert_no_linked_write_path)
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
@@ -6141,6 +11276,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         else {}
     )
     payload = {
+        "ok": True,
         "schema_version": "spark.os_authority.summary.v0",
         "generated_at": authority.get("generated_at"),
         "default_access_level": authority.get("default_access_level_hint"),
@@ -6157,9 +11293,8 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         "redaction": authority.get("redaction"),
     }
     if args.json:
-        print(json.dumps(payload, indent=2))
+        emit_json_payload(payload, output_path=output_path, write_text=atomic_write_text)
         return 0
-
     print("Spark OS authority")
     print(f"- default access level: {payload['default_access_level']}")
     print(f"- default sandbox lane: {payload['default_sandbox_lane']}")
@@ -6188,6 +11323,7 @@ def _safe_int(value: Any) -> int:
 
 
 def cmd_os_trace(args: argparse.Namespace) -> int:
+    output_path = resolve_os_json_output_path(json_output=args.json, output=getattr(args, "output", None), validate_path=lambda path: require_write_allowed(path, safe_root=spark_write_safe_root(), subject="Spark OS JSON output"), reject_linked_path=assert_no_linked_write_path)
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
@@ -6206,6 +11342,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
     trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_trace.summary.v0",
         "generated_at": trace_index.get("generated_at"),
         "builder_event_count": _safe_int(builder_events.get("row_count")),
@@ -6238,9 +11375,8 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
         "redaction": trace_index.get("redaction"),
     }
     if args.json:
-        print(json.dumps(payload, indent=2))
+        emit_json_payload(payload, output_path=output_path, write_text=atomic_write_text)
         return 0
-
     cross_system = payload["cross_system_trace"]
     print("Spark OS trace")
     print(f"- Builder events: {payload['builder_event_count']}")
@@ -6287,6 +11423,7 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     memory_review_queue = _safe_mapping(memory_index.get("memory_review_queue"))
     memory_review_items = _safe_list(memory_review_queue.get("items"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_memory.summary.v0",
         "generated_at": memory_index.get("generated_at"),
         "status": status.get("status") or "unknown",
@@ -6306,7 +11443,6 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-
     print("Spark OS memory movement")
     print(f"- status: {payload['status']}")
     print(f"- rows: {payload['row_count']}")
@@ -6323,9 +11459,9 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
             f"({next_review.get('reason_code')})"
         )
         if operator_paths:
-            print(f"- provenance path: {operator_paths.get('provenance_drilldown')}")
-            print(f"- stale/current gate: {operator_paths.get('stale_current_adjudication')}")
-            print(f"- purge path: {operator_paths.get('purge_or_decay_path')}")
+            print(f"- provenance path: {'available' if operator_paths.get('provenance_drilldown') else 'unavailable'}")
+            print(f"- stale/current gate: {'available' if operator_paths.get('stale_current_adjudication') else 'unavailable'}")
+            print(f"- purge path: {'available' if operator_paths.get('purge_or_decay_path') else 'unavailable'}")
     print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
     return 0
 
@@ -6378,7 +11514,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if profile_summary:
             print(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {hint}")
+        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
     print("")
 
     exit_code = 0
@@ -6390,9 +11526,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = str(module["detail"])
+        detail = expand_spark_home_placeholder(str(module["detail"]))
         if module.get("repair_hints"):
-            detail = f"{detail} -- {' '.join(module['repair_hints'])}"
+            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+            detail = f"{detail} -- {' '.join(expanded_hints)}"
         print(f"{marker} {module['name']:<26} {detail}")
         if healthy is False:
             exit_code = 1
@@ -6409,6 +11546,8 @@ def cmd_live(args: argparse.Namespace) -> int:
         args.allow_boot_warnings = False
         start_code = cmd_start(args)
         if command == "run":
+            if start_code != 0:
+                return start_code
             print("")
             print("Spark Live is running. Press Ctrl+C to stop watching logs; services keep running.")
             print("To turn Spark off, run: spark live stop")
@@ -6436,7 +11575,7 @@ def cmd_live(args: argparse.Namespace) -> int:
                 for line in tail_log_lines(path, getattr(args, "lines", 80)):
                     write_console_text(line if line.endswith("\n") else line + "\n")
             else:
-                print(f"No logs yet at {path}")
+                print("No logs yet for this target")
         if getattr(args, "follow", False):
             follow_live_logs(lines=0)
         return 0
@@ -6523,7 +11662,12 @@ def cmd_live_status(args: argparse.Namespace) -> int:
     if payload.get("ok"):
         print("[OK] Spark Live is ready.")
     else:
-        print("[FIX] Spark Live needs attention.")
+        modules_list = payload.get("modules") if isinstance(payload.get("modules"), list) else []
+        failing = [module for module in modules_list if isinstance(module, dict) and module.get("healthy") is False]
+        if failing:
+            print(f"[FIX] Spark Live needs attention ({len(failing)} module(s) unhealthy).")
+        else:
+            print("[FIX] Spark Live needs attention.")
     llm_state = payload.get("llm")
     if isinstance(llm_state, dict):
         roles = llm_state.get("roles")
@@ -6592,7 +11736,11 @@ def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
 
 def print_plain_doctor(payload: dict[str, Any]) -> None:
     print("Spark doctor")
-    print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
+    setup_refresh = payload.get("setup_refresh") if isinstance(payload.get("setup_refresh"), dict) else {}
+    if payload.get("ok") and setup_refresh.get("status") == "paused":
+        print("Spark is ready with a paused setup refresh.")
+    else:
+        print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
     print("")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
@@ -6607,6 +11755,18 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
     print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
     print("")
+    if setup_refresh:
+        print("Setup refresh")
+        print(f"- Status: {setup_refresh.get('status') or 'pending'}")
+        summary = str(setup_refresh.get("summary") or "").strip()
+        if summary:
+            print(f"- Note: {summary}")
+        if setup_refresh.get("safe_to_continue"):
+            print("- Existing runtime: safe to keep using")
+        next_step = str(setup_refresh.get("next") or "").strip()
+        if next_step:
+            print(f"- Resume: {next_step}")
+        print("")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         running = sum(1 for item in profiles if isinstance(item, dict) and item.get("running"))
@@ -6680,6 +11840,7 @@ def print_plain_specialization_loop_doctor(payload: dict[str, Any]) -> None:
 
 def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "ok": True,
         "created_at": timestamp_now(),
         "spark_home": public_local_path_ref(SPARK_HOME),
         "status": collect_status_payload(),
@@ -6729,6 +11890,10 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", readme)
         archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -6742,11 +11907,14 @@ def cmd_support(args: argparse.Namespace) -> int:
     path = write_support_bundle(payload)
     print("Spark support bundle")
     print("")
-    print(f"[OK] Wrote local redacted support bundle: {path}")
+    print("[OK] Wrote local redacted support bundle.")
     print("")
     print("Review before sharing:")
     print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
-    print("  - Logs are excluded unless you used --include-logs.")
+    if args.include_logs:
+        print("  - Logs are included. Review each log excerpt before sharing.")
+    else:
+        print("  - Logs are excluded unless you used --include-logs.")
     print("  - A sharing_manifest is included in support.json; fix any remaining_risk_findings before sharing.")
     print("  - Nothing was uploaded.")
     print("")
@@ -6758,14 +11926,12 @@ def cmd_support(args: argparse.Namespace) -> int:
 REVOKE_ALL_ROTATABLE_ENV_KEYS = {
     "EVENTS_API_KEY",
     "MCP_API_KEY",
-    "SPARK_BRIDGE_API_KEY",
     "SPARK_UI_API_KEY",
     "TELEGRAM_RELAY_SECRET",
 }
 REVOKE_ALL_SPAWNER_REQUIRED_KEYS = {
     "EVENTS_API_KEY",
     "MCP_API_KEY",
-    "SPARK_BRIDGE_API_KEY",
     "SPARK_UI_API_KEY",
 }
 REVOKE_ALL_NON_TERMINAL_PROVIDER_STATUSES = {"idle", "queued", "running"}
@@ -6839,7 +12005,7 @@ def module_name_from_generated_env_path(path: Path) -> str | None:
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
-    except Exception:
+    except (Exception, SystemExit):
         return {}
 
 
@@ -6872,10 +12038,11 @@ def rotate_revoke_all_env_keys(*, dry_run: bool = False) -> dict[str, Any]:
         keys = {key for key in REVOKE_ALL_ROTATABLE_ENV_KEYS if key in values}
         if path.name == "spawner-ui.env":
             keys.update(REVOKE_ALL_SPAWNER_REQUIRED_KEYS)
-        if not keys:
+        if not keys and BRIDGE_API_KEY_ENV not in values:
             continue
         try:
             next_values = dict(values)
+            next_values.pop(BRIDGE_API_KEY_ENV, None)
             for key in sorted(keys):
                 generated_values.setdefault(key, revoke_all_token_value(key))
                 next_values[key] = generated_values[key]
@@ -7029,12 +12196,17 @@ def delete_revoke_all_secrets(secret_ids: Iterable[str], *, dry_run: bool = Fals
 def spawner_state_dir_for_revoke_all() -> Path:
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
     raw = spawner_env.get("SPAWNER_STATE_DIR") or str(STATE_DIR / "spawner-ui")
-    return Path(raw).expanduser()
+    candidate = Path(raw).expanduser().resolve()
+    if not candidate.is_relative_to(SPARK_HOME.resolve()):
+        raise SystemExit("SPAWNER_STATE_DIR resolves outside Spark home; refusing security revoke-all state access.")
+    return candidate
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
     try:
-        return load_json(path, default)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return default
 
@@ -7121,7 +12293,7 @@ def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = 
                     active["note"] = "Paused by spark security revoke-all"
                     active["securityRevokeAll"] = {"pausedAt": created_at, "source": "spark-cli"}
                     save_json(active_path, active)
-                except Exception as error:
+                except OSError as error:
                     failures.append({"path": str(active_path), "error": revoke_all_error_detail(error)})
 
     provider_results = load_json_best_effort(provider_results_path, {})
@@ -7272,7 +12444,7 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
         print(f"{marker} {label}: {detail}")
     if payload.get("support_bundle_path"):
         print("")
-        print(f"Redacted support bundle: {payload['support_bundle_path']}")
+        print("Redacted support bundle saved locally.")
     print("")
     print("Remote cleanup still to do where applicable:")
     for item in payload.get("manual_remote_revocations") or []:
@@ -7282,9 +12454,29 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"\b\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)([^\s,;\"']+)"),
-    re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{16,})"),
 ]
+NAMED_SECRET_KEY_PATTERN = (
+    r"(?:[A-Za-z][A-Za-z0-9_]*_)?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|"
+    r"client[-_]?secret|token|secret|password|passwd)"
+)
+QUOTED_SECRET_KEY_PATTERN = rf"(?:{NAMED_SECRET_KEY_PATTERN}|authorization)"
+QUOTED_NAMED_SECRET_PATTERNS = (
+    re.compile(
+        rf'(?i)(?P<prefix>(?<![A-Za-z0-9_])(?:"{QUOTED_SECRET_KEY_PATTERN}"|{QUOTED_SECRET_KEY_PATTERN})\s*[:=]\s*")'
+        r'(?P<value>[^"\r\n]+)(?P<suffix>")'
+    ),
+    re.compile(
+        rf"(?i)(?P<prefix>(?<![A-Za-z0-9_])(?:'{QUOTED_SECRET_KEY_PATTERN}'|{QUOTED_SECRET_KEY_PATTERN})\s*[:=]\s*')"
+        r"(?P<value>[^'\r\n]+)(?P<suffix>')"
+    ),
+)
+NAMED_SECRET_VALUE_PATTERN = re.compile(
+    rf"(?i)(?P<prefix>(?<![A-Za-z0-9_]){NAMED_SECRET_KEY_PATTERN}\s*[:=]\s*)(?P<value>[^\s,;\"']+)"
+)
+AUTHORIZATION_VALUE_PATTERN = re.compile(
+    r"(?i)(?P<prefix>(?<![A-Za-z0-9_])authorization\s*[:=]\s*)(?!bearer\b)(?P<value>[^\s,;\"']+)"
+)
+BEARER_VALUE_PATTERN = re.compile(r"(?i)(?P<prefix>\bbearer[ \t]+)(?P<value>[A-Za-z0-9._~+/\-]+=*)")
 SECRET_SURFACE_ENV_PATTERN = re.compile(
     r"(?im)^\s*([A-Z][A-Z0-9_]*(?:API_KEY|BOT_TOKEN|TOKEN|SECRET|PASSWORD|AUTHORIZATION))\s*=\s*([^\r\n#]+)"
 )
@@ -7292,7 +12484,7 @@ SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES = {"TELEGRAM_RELAY_SECRET"}
 SECRET_SURFACE_TOKEN_PATTERNS = [
     re.compile(r"\b(?:bot)?\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
-    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}"),
+    re.compile(r"(?i)\bbearer[ \t]+[A-Za-z0-9._~+/\-]+=*"),
 ]
 SECRET_SURFACE_MAX_FILE_BYTES = 2 * 1024 * 1024
 
@@ -7374,15 +12566,37 @@ def collect_secret_surface_payload() -> dict[str, Any]:
     }
 
 
+def secret_log_redaction_has_live_process() -> bool:
+    for record in load_pids().values():
+        if not isinstance(record, dict):
+            continue
+        try:
+            pid = int(record.get("pid") or 0)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0 and pid_is_running(pid):
+            return True
+    return False
+
+
 def redact_secret_surface_logs() -> dict[str, Any]:
     changed: list[str] = []
     scanned = 0
+    failed = 0
+    if secret_log_redaction_has_live_process():
+        return {
+            "changed": changed,
+            "scanned_files": scanned,
+            "failed_files": failed,
+            "blocked": True,
+            "detail": "Stop Spark services before redacting logs so active writers are not orphaned.",
+        }
     if not LOG_DIR.exists():
-        return {"changed": changed, "scanned_files": scanned}
+        return {"changed": changed, "scanned_files": scanned, "failed_files": failed, "blocked": False}
     try:
         files = [path for path in LOG_DIR.rglob("*") if path.is_file()]
     except OSError:
-        return {"changed": changed, "scanned_files": scanned}
+        return {"changed": changed, "scanned_files": scanned, "failed_files": failed, "blocked": False}
     for path in files:
         scanned += 1
         try:
@@ -7394,11 +12608,12 @@ def redact_secret_surface_logs() -> dict[str, Any]:
         redacted = redact_sensitive_text(original)
         if redacted != original:
             try:
-                path.write_text(redacted, encoding="utf-8")
-            except OSError:
+                atomic_write_text(path, redacted)
+            except (OSError, SystemExit):
+                failed += 1
                 continue
             changed.append(redact_shareable_text(str(path)))
-    return {"changed": changed, "scanned_files": scanned}
+    return {"changed": changed, "scanned_files": scanned, "failed_files": failed, "blocked": False}
 
 
 def security_check(
@@ -7466,18 +12681,61 @@ def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list
     return errors
 
 
+def effective_generated_module_env_value(
+    generated_env: dict[str, str],
+    key: str,
+    *,
+    legacy_generated_key: str | None = None,
+) -> str:
+    """Mirror module_runtime_env precedence for one non-keychain control value."""
+    if key in generated_env:
+        return str(generated_env[key]).strip()
+    if legacy_generated_key and legacy_generated_key in generated_env:
+        return str(generated_env[legacy_generated_key]).strip()
+    return (os.environ.get(key) or "").strip()
+
+
+def spawner_bind_host_is_exposed(host: str) -> bool:
+    normalized = (host or "").strip().lower()
+    if normalized in {"", "localhost", "127.0.0.1", "::1", "[::1]"}:
+        return False
+    if normalized == "*":
+        return True
+    candidate = normalized
+    if candidate.startswith("[") and "]" in candidate:
+        candidate = candidate[1 : candidate.index("]")]
+    candidate = candidate.split("%", 1)[0]
+    try:
+        return not ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        # A non-localhost name may resolve beyond loopback. Audit it as exposed
+        # rather than claiming a local-only control surface without DNS proof.
+        return True
+
+
 def local_control_surface_errors() -> list[str]:
     errors: list[str] = []
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
-    spawner_host = (spawner_env.get("SPARK_SPAWNER_HOST") or spawner_env.get("HOST") or "").strip()
-    allowed_hosts = [host.strip() for host in (spawner_env.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
-    public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
+    spawner_host = effective_generated_module_env_value(
+        spawner_env,
+        "SPARK_SPAWNER_HOST",
+        legacy_generated_key="HOST",
+    )
+    allowed_hosts = [
+        host.strip()
+        for host in effective_generated_module_env_value(spawner_env, "SPARK_ALLOWED_HOSTS").split(",")
+        if host.strip()
+    ]
+    exposed_bind = spawner_bind_host_is_exposed(spawner_host)
+    public_bind = exposed_bind or bool(allowed_hosts)
     if public_bind:
         errors.extend(hosted_allowed_host_errors(allowed_hosts))
-        if not allowed_hosts:
-            errors.append("Spawner appears publicly bound but SPARK_ALLOWED_HOSTS is not configured.")
-        ui_key = spawner_env.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_UI_API_KEY") or ""
-        bridge_key = spawner_env.get("SPARK_BRIDGE_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+        if exposed_bind and not allowed_hosts:
+            errors.append(f"Spawner appears publicly bound to {spawner_host!r} but SPARK_ALLOWED_HOSTS is not configured.")
+        ui_key = effective_generated_module_env_value(spawner_env, "SPARK_UI_API_KEY")
+        bridge_key = managed_secret_runtime.control_surface_bridge_explicit(sys.modules[__name__]) or (
+            effective_generated_module_env_value(spawner_env, BRIDGE_API_KEY_ENV)
+        )
         errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))
     return errors
 
@@ -7520,7 +12778,7 @@ def pid_registry_errors() -> list[str]:
             errors.append(f"Process registry entry `{key}` is malformed.")
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             errors.append(f"Process registry entry `{key}` has an invalid pid.")
             continue
@@ -7608,7 +12866,11 @@ def module_supply_chain_errors() -> list[str]:
         if not isinstance(record, dict):
             errors.append(f"Installed module `{name}` has a malformed registry record.")
             continue
-        path = Path(str(record.get("path") or "")).expanduser()
+        raw_path = str(record.get("path") or "").strip()
+        if not raw_path:
+            errors.append(f"Installed module `{name}` registry record has an empty path field.")
+            continue
+        path = Path(raw_path).expanduser()
         if not path.exists():
             errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
             continue
@@ -7919,7 +13181,61 @@ def dependency_hash_mode_errors() -> list[str]:
     return errors
 
 
-def endpoint_security_errors() -> list[str]:
+def _has_endpoint_space_or_control(value: str) -> bool:
+    return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+
+
+def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
+    raw_value = str(raw_url or "")
+    value = raw_value.strip()
+    if not value or value.startswith("${"):
+        return []
+
+    errors: list[str] = []
+    if _has_endpoint_space_or_control(raw_value):
+        errors.append(f"{label} contains whitespace or control characters.")
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = (parsed.hostname or "").strip().lower()
+    if host and _has_endpoint_space_or_control(urllib.parse.unquote(host)):
+        errors.append(f"{label} hostname contains encoded whitespace or control characters.")
+    return errors
+
+
+def _endpoint_url_for_policy(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value or value.startswith("${"):
+        return value
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = parsed.hostname or ""
+    if not host.endswith("."):
+        return value
+
+    normalized_host = host.rstrip(".")
+    if not normalized_host or parsed.username or parsed.password:
+        return value
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return value
+
+    host_part = f"[{normalized_host}]" if ":" in normalized_host and not normalized_host.startswith("[") else normalized_host
+    netloc = f"{host_part}:{port}" if port is not None else host_part
+    normalized = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+    if "://" not in value and normalized.startswith("http://"):
+        return normalized[len("http://"):]
+    return normalized
+
+
+def endpoint_security_errors(
+    *,
+    resolve_dns: bool = False,
+    resolver: AddressResolver = socket.getaddrinfo,
+) -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
     urls: list[tuple[str, str]] = []
@@ -7934,16 +13250,16 @@ def endpoint_security_errors() -> list[str]:
         for key, value in env_values.items():
             if ("URL" in key or key.endswith("_HOST")) and value:
                 for raw_url in str(value).split(","):
-                    urls.append((f"{env_name}:{key}", raw_url.strip()))
+                    urls.append((f"{env_name}:{key}", raw_url))
 
     for label, raw_url in urls:
-        errors.extend(
-            validate_url_safety(
-                raw_url,
-                label=label,
-                policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
-            )
-        )
+        errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
+        policy = UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True)
+        normalized_url = _endpoint_url_for_policy(raw_url)
+        if resolve_dns:
+            errors.extend(validate_url_resolution(normalized_url, label=label, policy=policy, resolver=resolver))
+        else:
+            errors.extend(validate_url_safety(normalized_url, label=label, policy=policy))
     return errors
 
 
@@ -8196,7 +13512,7 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
         severity="medium",
     ))
 
-    endpoint_errors = endpoint_security_errors()
+    endpoint_errors = endpoint_security_errors(resolve_dns=deep)
     checks.append(security_check(
         "endpoint_safety",
         not endpoint_errors,
@@ -8257,10 +13573,19 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
 
     status_payload = collect_status_payload()
     repair_hints = status_payload.get("repair_hints") if isinstance(status_payload, dict) else []
+    if not isinstance(repair_hints, list):
+        repair_hints = []
+    runtime_ok = bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False
+    if runtime_ok:
+        runtime_detail = "Spark runtime health is clean."
+    elif repair_hints:
+        runtime_detail = "; ".join(str(item) for item in repair_hints[:3])
+    else:
+        runtime_detail = "Spark runtime health check did not pass, and no repair guidance is available."
     checks.append(security_check(
         "runtime_health",
-        bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False,
-        "Spark runtime health is clean." if not repair_hints else "; ".join(str(item) for item in repair_hints[:3]),
+        runtime_ok,
+        runtime_detail,
         "spark live status",
         severity="medium",
     ))
@@ -8337,7 +13662,33 @@ def cmd_security(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_approval_status_payload() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "classifier_mode": "report_only",
+        "execution_mode": "enforced",
+        "enforcement_enabled": True,
+        "default_enabled": True,
+        "enforcement_source": "process_security_floor",
+        "enforcement_note": "Sensitive command execution is approval-enforced and cannot be disabled by mutable process environment.",
+        "classify_usage": "spark approval classify -- <command>",
+        "next": "Use classify to inspect a decision; keep execution enforcement enabled for normal operation.",
+    }
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
+    if args.approval_command == "status":
+        payload = collect_approval_status_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+        print("Spark approval status")
+        print(f"Classifier: {payload['classifier_mode']}")
+        print(f"Execution: {payload['execution_mode']}")
+        print(payload["enforcement_note"])
+        print(f"Classify: {payload['classify_usage']}")
+        print(f"Next: {payload['next']}")
+        return 0
     if args.approval_command != "classify":
         raise SystemExit(f"Unknown approval command: {args.approval_command}")
     command = list(args.command or [])
@@ -8345,6 +13696,8 @@ def cmd_approval(args: argparse.Namespace) -> int:
         command = command[1:]
     if not command:
         raise SystemExit("Usage: spark approval classify -- <command>")
+    if len(command) == 1:
+        command = parse_command_text(command[0])
     decision = approval_required_for_command(
         command,
         CommandContext(
@@ -8353,9 +13706,13 @@ def cmd_approval(args: argparse.Namespace) -> int:
             non_interactive=bool(getattr(args, "non_interactive", False)),
         ),
     )
+    would_enforce = approval_decision_would_enforce(decision)
+    would_block = bool(would_enforce and decision.approval_mode == "blocked")
     payload = {
         "ok": True,
         "mode": "report_only",
+        "would_enforce": would_enforce,
+        "would_block": would_block,
         "decision": decision.to_dict(),
         "note": "Report-only classifier. Spark is not enforcing this decision yet.",
     }
@@ -8366,6 +13723,8 @@ def cmd_approval(args: argparse.Namespace) -> int:
     print(f"Class: {decision.action_class}")
     print(f"Risk: {decision.risk}")
     print(f"Requires approval: {'yes' if decision.requires_approval else 'no'}")
+    print(f"Would enforce: {'yes' if would_enforce else 'no'}")
+    print(f"Would block: {'yes' if would_block else 'no'}")
     print(f"Reason: {decision.reason}")
     if decision.target_display:
         print(f"Target: {decision.target_display}")
@@ -8380,7 +13739,7 @@ def print_access_payload(payload: dict[str, Any]) -> None:
     print("Spark access setup")
     print(f"Access level: {payload.get('access_level')}")
     print(f"OS: {payload.get('os_family')}")
-    print(f"Workspace: {payload.get('workspace_path')}")
+    print("Workspace: (configured)")
     print(f"Recommended lane: {recommended.get('label') or recommended.get('id')}")
     if recommended.get("user_message"):
         print(str(recommended["user_message"]))
@@ -8404,7 +13763,10 @@ def print_access_payload(payload: dict[str, Any]) -> None:
         elif level5.get("restart_required"):
             print("Level 5 guardrails: configured, restart Spark to activate")
         else:
-            print("Level 5 guardrails: blocked until explicitly enabled")
+            print(
+                "Level 5 guardrails: blocked until explicitly enabled "
+                "with `spark access setup --level 5 --enable-high-agency`"
+            )
     print("")
     print("Available lanes:")
     for lane in payload.get("lanes", []):
@@ -8447,6 +13809,62 @@ def cmd_access(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_sandbox_status_payload() -> dict[str, Any]:
+    from .sandbox.docker import collect_docker_doctor_payload
+    from .sandbox.modal import collect_modal_doctor_payload
+    from .sandbox.ssh import list_ssh_targets
+
+    docker_ready = bool(collect_docker_doctor_payload(timeout=4).get("ok"))
+    modal_ready = bool(collect_modal_doctor_payload().get("ok"))
+    ssh_count = 0
+    ssh_state = "not_configured"
+    ssh_detail = "No SSH targets are configured."
+    degraded = False
+    try:
+        ssh_count = len(list_ssh_targets())
+        if ssh_count:
+            ssh_state = "configured"
+            ssh_detail = f"{ssh_count} SSH target(s) configured; run SSH doctor before use."
+    except ValueError:
+        degraded = True
+        ssh_state = "degraded"
+        ssh_detail = "SSH target store is unreadable."
+
+    usable_sandbox = docker_ready or modal_ready
+    recommended_lane = "docker" if docker_ready else "modal" if modal_ready else "workspace"
+    return {
+        "ok": True,
+        "mode": "read_only_local_status",
+        "usable_sandbox": usable_sandbox,
+        "degraded": degraded,
+        "recommended_lane": recommended_lane,
+        "backends": [
+            {
+                "backend": "docker",
+                "state": "ready" if docker_ready else "not_ready",
+                "ready": docker_ready,
+                "detail": "Docker doctor is ready." if docker_ready else "Docker is optional and not ready.",
+            },
+            {
+                "backend": "modal",
+                "state": "ready" if modal_ready else "not_ready",
+                "ready": modal_ready,
+                "detail": "Modal doctor is ready." if modal_ready else "Modal is optional and not ready.",
+            },
+            {
+                "backend": "ssh",
+                "state": ssh_state,
+                "ready": False,
+                "target_count": ssh_count,
+                "detail": ssh_detail,
+            },
+        ],
+        "next": (
+            "Run the selected lane's doctor before a smoke. SSH targets are never called ready from configuration alone."
+        ),
+    }
+
+
 def cmd_sandbox(args: argparse.Namespace) -> int:
     from .sandbox.capabilities import CapabilityManifest
     from .sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
@@ -8462,6 +13880,18 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
     )
 
     backend = getattr(args, "sandbox_backend", "") or "unknown"
+    if backend == "status":
+        payload = collect_sandbox_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0
+        print("Spark sandbox status")
+        print(f"Recommended lane: {payload['recommended_lane']}")
+        for lane in payload["backends"]:
+            state = str(lane["state"]).upper()
+            print(f"  [{state}] {lane['backend']}: {lane['detail']}")
+        print(payload["next"])
+        return 0
     command = getattr(args, f"{backend}_command", "") or "unknown"
     if backend == "ssh" and command in {"add", "list", "remove", "doctor", "trust", "smoke"}:
         try:
@@ -8605,6 +14035,7 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
                 build=not bool(getattr(args, "no_build", False)),
                 image=getattr(args, "image", "") or None,
                 network=bool(getattr(args, "network", False)),
+                timeout=int(getattr(args, "timeout", 180)),
             )
         exit_code = 0 if payload.get("ok") else 1
         if getattr(args, "json", False):
@@ -8645,16 +14076,13 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "destructive_filesystem",
     "external_publish",
     "git_history_mutation",
+    "high_cost_execution",
     "identity_access_mutation",
     "network_exfiltration",
     "remote_code_execution",
     "container_privilege_escalation",
     "process_autostart_mutation",
 }
-
-
-def approval_enforcement_enabled() -> bool:
-    return str(os.environ.get("SPARK_APPROVAL_ENFORCE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def command_argv_for_approval(argv: list[str] | None) -> list[str]:
@@ -8670,20 +14098,20 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 
 
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
+    if getattr(args, "approval_command", None) is not None or getattr(args, "telegram_command", None) == "status":
+        return False
+    return approval_decision_would_enforce(decision)
+
+
+def approval_decision_would_enforce(decision: Any) -> bool:
     if not decision.requires_approval:
         return False
-    if getattr(args, "command", "") == "approval":
-        return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
-        return False
-    if getattr(args, "command", "") == "setup" and decision.action_class == "identity_access_mutation":
         return False
     return True
 
 
 def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> int | None:
-    if not approval_enforcement_enabled():
-        return None
     context = approval_context_for_args(args)
     decision = approval_required_for_command(command_argv, context)
     if not should_enforce_approval(args, decision):
@@ -8705,19 +14133,32 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     response = input("Approval phrase: ").strip().lower()
     if response != decision.confirmation_phrase:
         print("Approval not granted. Nothing changed.")
+        print(
+            f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
+            "at the prompt to proceed."
+        )
         return 2
     return None
 
 
 def redact_sensitive_text(value: str) -> str:
     redacted = str(value)
+    redacted = BEARER_VALUE_PATTERN.sub(lambda match: f"{match.group('prefix')}[REDACTED]", redacted)
+    for pattern in QUOTED_NAMED_SECRET_PATTERNS:
+        redacted = pattern.sub(
+            lambda match: f"{match.group('prefix')}[REDACTED]{match.group('suffix')}",
+            redacted,
+        )
+    redacted = AUTHORIZATION_VALUE_PATTERN.sub(
+        lambda match: f"{match.group('prefix')}[REDACTED]",
+        redacted,
+    )
+    redacted = NAMED_SECRET_VALUE_PATTERN.sub(
+        lambda match: f"{match.group('prefix')}[REDACTED]",
+        redacted,
+    )
     for pattern in SENSITIVE_VALUE_PATTERNS:
-        if pattern.pattern.startswith("(?i)(api"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]", redacted)
-        elif pattern.pattern.startswith("(?i)(bearer"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", redacted)
-        else:
-            redacted = pattern.sub("[REDACTED]", redacted)
+        redacted = pattern.sub("[REDACTED]", redacted)
     return redacted
 
 
@@ -8734,8 +14175,8 @@ def redact_shareable_text(value: str) -> str:
     redacted = redacted.replace("~/.spark", "<spark-home>")
     redacted = redacted.replace("~\\.spark", "<spark-home>")
     redacted = re.sub(r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\s]+", "%USERPROFILE%", redacted)
-    redacted = re.sub(r"(?i)\b/Users/[^/\s]+", "$HOME", redacted)
-    redacted = re.sub(r"(?i)\b/home/[^/\s]+", "$HOME", redacted)
+    redacted = re.sub(r"(?i)/Users/[^/\s]+", "$HOME", redacted)
+    redacted = re.sub(r"(?i)/home/[^/\s]+", "$HOME", redacted)
     redacted = re.sub(
         r"(?i)\b(Telegram(?:\s+admin)?\s+ID|Admin\s+ID|ALLOWED_TELEGRAM_IDS)(\s*[:=]\s*)(\d{5,16})\b",
         lambda match: f"{match.group(1)}{match.group(2)}[TELEGRAM_ID_REDACTED]",
@@ -8822,6 +14263,200 @@ def redact_for_llm(value: Any) -> Any:
     if isinstance(value, str):
         return redact_sensitive_text(value)
     return value
+
+
+def codex_config_path(env: dict[str, str] | None = None) -> Path:
+    source = env if env is not None else os.environ
+    codex_home = str(source.get("CODEX_HOME") or "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "config.toml"
+    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+    root = Path(home).expanduser() if home else Path.home()
+    return root / ".codex" / "config.toml"
+
+
+def codex_auth_path(env: dict[str, str] | None = None) -> Path:
+    source = env if env is not None else os.environ
+    codex_home = str(source.get("CODEX_HOME") or "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+    root = Path(home).expanduser() if home else Path.home()
+    return root / ".codex" / "auth.json"
+
+
+def codex_cli_auth_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    path = codex_auth_path(env)
+    payload: dict[str, Any] = {
+        "provider": "codex",
+        "path": public_local_path_ref(path),
+        "exists": path.exists(),
+        "source": "codex_cli_auth",
+        "notes": [],
+    }
+    if not path.exists():
+        payload["ok"] = False
+        payload["notes"].append("Codex auth.json was not found. Run `codex login` first.")
+        return payload
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        payload["ok"] = False
+        payload["notes"].append(redact_sensitive_text(str(exc)))
+        return payload
+    if not isinstance(parsed, dict) or not parsed:
+        payload["ok"] = False
+        payload["notes"].append("Codex auth.json is empty or invalid. Run `codex login` again.")
+        return payload
+    payload["ok"] = True
+    return payload
+
+
+def _safe_codex_client_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value).strip()
+    return ""
+
+
+def codex_active_roles() -> list[str]:
+    payload = provider_status_payload()
+    roles = payload.get("roles") if isinstance(payload, dict) else {}
+    if not isinstance(roles, dict):
+        return []
+    active: list[str] = []
+    for role, state in roles.items():
+        if isinstance(state, dict) and state.get("provider") == "codex":
+            active.append(str(role))
+    return active
+
+
+def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    path = codex_config_path(env)
+    payload: dict[str, Any] = {
+        "provider": "codex",
+        "path": public_local_path_ref(path),
+        "exists": path.exists(),
+        "source": "codex_cli_config",
+        "editable": True,
+        "active_roles": [],
+        "values": {},
+        "notes": [],
+    }
+    if not path.exists():
+        payload["ok"] = False
+        payload["notes"].append("Codex config.toml was not found.")
+        return payload
+    try:
+        parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        payload["ok"] = False
+        payload["notes"].append(redact_sensitive_text(str(exc)))
+        return payload
+    values = {
+        key: _safe_codex_client_value(parsed.get(key))
+        for key in CODEX_CLIENT_CONFIG_KEYS
+        if _safe_codex_client_value(parsed.get(key))
+    }
+    payload["ok"] = True
+    payload["values"] = values
+    return payload
+
+
+def validate_codex_config_value(key: str, value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise SystemExit(f"{key} cannot be empty.")
+    if key == "model_reasoning_effort" and normalized not in CODEX_REASONING_EFFORTS:
+        raise SystemExit(f"model_reasoning_effort must be one of: {', '.join(CODEX_REASONING_EFFORTS)}")
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$", normalized):
+        raise SystemExit(f"{key} contains unsupported characters.")
+    return normalized
+
+
+def toml_string(value: str) -> str:
+    return json.dumps(value)
+
+
+def update_toml_top_level_scalars(content: str, updates: dict[str, str]) -> str:
+    lines = content.splitlines()
+    seen: set[str] = set()
+    first_section_index = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            first_section_index = index
+            break
+        match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+        if not match:
+            continue
+        key = match.group(2)
+        if key in updates:
+            lines[index] = f"{match.group(1)}{key} = {toml_string(updates[key])}"
+            seen.add(key)
+    missing = [key for key in CODEX_CLIENT_CONFIG_KEYS if key in updates and key not in seen]
+    if missing:
+        inserted = [f"{key} = {toml_string(updates[key])}" for key in missing]
+        if first_section_index < len(lines):
+            inserted.append("")
+        lines[first_section_index:first_section_index] = inserted
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    assert_no_linked_write_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    temp_fd: int | None = None
+    try:
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0)
+        )
+        for _attempt in range(32):
+            temp_path = path.with_name(
+                f".{path.name}.{os.getpid()}.{py_secrets.token_hex(16)}.tmp"
+            )
+            try:
+                temp_fd = os.open(temp_path, flags, PRIVATE_FILE_MODE)
+                break
+            except FileExistsError:
+                continue
+        if temp_fd is None or temp_path is None:
+            raise FileExistsError("Could not claim a unique private temporary file.")
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+        harden_secret_file(path)
+    finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        try:
+            if temp_path is not None and temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
+
+
+def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
+    normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
+    path = codex_config_path(env)
+    before = path.read_text(encoding="utf-8") if path.exists() else ""
+    after = update_toml_top_level_scalars(before, normalized)
+    if after != before:
+        atomic_write_text(path, after)
+    payload = codex_client_config_payload(env)
+    payload["changed"] = after != before
+    payload["updated"] = sorted(normalized)
+    return payload
 
 
 def collect_llm_doctor_context(problem: str, *, include_logs: bool = False, log_lines: int = 80) -> dict[str, Any]:
@@ -8932,6 +14567,9 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
         if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
             secret_id = spec.get("api_key_secret")
             api_key = fetch_secret(str(secret_id)) if secret_id else None
+            if not api_key:
+                env_var = spec.get("api_key_env")
+                api_key = os.environ.get(str(env_var)) if env_var else None
             if api_key:
                 return {
                     "provider": provider,
@@ -9001,11 +14639,11 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         headers={
             "Authorization": f"Bearer {target['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "LLM provider", allow_local=False)
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -9033,13 +14671,28 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "Ollama", allow_local=True)
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
         raise SystemExit("Ollama returned an empty doctor response.")
     return str(content)
+
+
+def read_llm_provider_json(
+    request: urllib.request.Request,
+    provider_label: str,
+    *,
+    allow_local: bool,
+) -> dict[str, Any]:
+    return _read_llm_provider_json(
+        request,
+        provider_label,
+        allow_local=allow_local,
+        redact_sensitive=redact_sensitive_text,
+        endpoint_validator=_validated_llm_provider_endpoint,
+        request_opener=_open_pinned_provider_request,
+    )
 
 
 def llm_cli_creationflags() -> int:
@@ -9052,7 +14705,123 @@ def llm_cli_cwd() -> str:
     return str(SPARK_HOME if SPARK_HOME.exists() else Path.cwd())
 
 
-def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
+def _llm_cli_probe_creationflags() -> int:
+    flags = llm_cli_creationflags()
+    if os.name == "nt":
+        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    return flags
+
+
+def _stop_llm_cli_process_tree(process: subprocess.Popen[Any]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=llm_cli_creationflags(),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def run_llm_cli_probe_command(
+    command: list[str],
+    *,
+    provider_label: str,
+    timeout_seconds: float = 90,
+    max_output_bytes: int = 64 * 1024,
+) -> subprocess.CompletedProcess[str]:
+    if not command or not all(isinstance(part, str) and part for part in command):
+        raise ValueError("provider probe command must be a non-empty list of text tokens")
+    if not isinstance(timeout_seconds, (int, float)) or isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
+        raise ValueError("provider probe timeout must be positive")
+    if not isinstance(max_output_bytes, int) or isinstance(max_output_bytes, bool) or max_output_bytes <= 0:
+        raise ValueError("provider probe output limit must be a positive integer")
+
+    safe_label = re.sub(r"[\r\n\t]+", " ", redact_sensitive_text(str(provider_label))).strip()[:80]
+    safe_label = safe_label or "Provider"
+    timeout_text = f"{timeout_seconds:g}"
+    temp_root = os.environ.get("TMPDIR") or None
+    process: subprocess.Popen[Any] | None = None
+    with tempfile.TemporaryDirectory(prefix="spark-provider-probe-", dir=temp_root) as temp_dir:
+        stdout_path = Path(temp_dir) / "stdout.bin"
+        stderr_path = Path(temp_dir) / "stderr.bin"
+        for path in (stdout_path, stderr_path):
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE)
+            os.close(descriptor)
+        with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
+            process = subprocess.Popen(
+                command,
+                cwd=llm_cli_cwd(),
+                stdout=stdout_file,
+                stderr=stderr_file,
+                creationflags=_llm_cli_probe_creationflags(),
+                start_new_session=os.name != "nt",
+                env=shell_command_env(filtered=True),
+            )
+            deadline = time.monotonic() + float(timeout_seconds)
+            stop_reason = ""
+            while True:
+                output_size = os.fstat(stdout_file.fileno()).st_size + os.fstat(stderr_file.fileno()).st_size
+                if output_size > max_output_bytes:
+                    stop_reason = "output"
+                    _stop_llm_cli_process_tree(process)
+                    break
+                if process.poll() is not None:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    stop_reason = "timeout"
+                    _stop_llm_cli_process_tree(process)
+                    break
+                try:
+                    process.wait(timeout=min(0.05, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
+
+        if stop_reason == "timeout":
+            raise SystemExit(
+                f"{safe_label} CLI did not finish within {timeout_text}s. "
+                "Check that it is signed in and can run non-interactively, then retry."
+            )
+        if stop_reason == "output" or stdout_path.stat().st_size + stderr_path.stat().st_size > max_output_bytes:
+            raise SystemExit(
+                f"{safe_label} CLI exceeded Spark's bounded output limit. "
+                "Check the provider CLI directly, then retry."
+            )
+        with stdout_path.open("rb") as stdout_file:
+            stdout_bytes = stdout_file.read(max_output_bytes)
+        with stderr_path.open("rb") as stderr_file:
+            stderr_bytes = stderr_file.read(max_output_bytes - len(stdout_bytes))
+        return subprocess.CompletedProcess(
+            command,
+            int(process.returncode or 0),
+            stdout=stdout_bytes.decode("utf-8", errors="replace"),
+            stderr=stderr_bytes.decode("utf-8", errors="replace"),
+        )
+
+
+def codex_cli_completion(target: dict[str, Any], prompt: str, *, timeout_seconds: float = 90) -> str:
     codex_path = str(target.get("cli_path") or shutil.which("codex") or "codex")
     command = [
         codex_path,
@@ -9066,16 +14835,10 @@ def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
     if model:
         command.extend(["--model", model])
     command.append(prompt)
-    result = subprocess.run(
+    result = run_llm_cli_probe_command(
         command,
-        cwd=llm_cli_cwd(),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-        creationflags=llm_cli_creationflags(),
-        env=shell_command_env(filtered=True),
+        provider_label="Codex",
+        timeout_seconds=timeout_seconds,
     )
     output = (result.stdout or "").strip()
     if result.returncode != 0:
@@ -9086,7 +14849,7 @@ def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
     return output
 
 
-def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
+def claude_cli_completion(target: dict[str, Any], prompt: str, *, timeout_seconds: float = 90) -> str:
     claude_path = str(target.get("cli_path") or shutil.which("claude") or "claude")
     if os.name == "nt" and claude_path.lower().endswith(".ps1"):
         command = [
@@ -9106,16 +14869,10 @@ def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
     if model:
         command.extend(["--model", model])
     command.append(prompt)
-    result = subprocess.run(
+    result = run_llm_cli_probe_command(
         command,
-        cwd=llm_cli_cwd(),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-        creationflags=llm_cli_creationflags(),
-        env=shell_command_env(filtered=True),
+        provider_label="Claude",
+        timeout_seconds=timeout_seconds,
     )
     output = (result.stdout or "").strip()
     if result.returncode != 0:
@@ -9126,7 +14883,7 @@ def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
     return output
 
 
-def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
+def call_llm_doctor(target: dict[str, Any], prompt: str, *, timeout_seconds: float = 90) -> str:
     if target.get("unsupported"):
         provider = target.get("provider")
         raise SystemExit(
@@ -9136,15 +14893,19 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
     provider = target["provider"]
     if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
         if target.get("auth_mode") == "codex_oauth":
-            return codex_cli_completion(target, prompt)
+            return codex_cli_completion(target, prompt, timeout_seconds=timeout_seconds)
         return openai_compatible_chat_completion(target, prompt)
     if provider == "codex":
-        return codex_cli_completion(target, prompt)
+        return codex_cli_completion(target, prompt, timeout_seconds=timeout_seconds)
     if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
-        return claude_cli_completion(target, prompt)
+        return claude_cli_completion(target, prompt, timeout_seconds=timeout_seconds)
     if provider == "ollama":
         return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    raise SystemExit(
+        f"Spark Doctor cannot directly call provider `{provider}` yet. "
+        f"Supported providers: {', '.join(LLM_DOCTOR_DIRECT_PROVIDER_CHOICES)}. "
+        "Run `spark providers list` to see configured paths, or `spark setup` to switch."
+    )
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
@@ -9153,6 +14914,10 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
     path.write_text(content, encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -9207,12 +14972,36 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     prompt = render_llm_doctor_prompt(context)
     if getattr(args, "prompt_out", None):
         prompt_path = Path(args.prompt_out).expanduser()
-        prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path.write_text(prompt, encoding="utf-8")
-        print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
+        require_write_allowed(prompt_path, safe_root=spark_write_safe_root(), subject="doctor prompt output")
+        atomic_write_text(prompt_path, prompt)
+        print("Wrote redacted Spark Doctor prompt.")
         return 0
-    target = resolve_llm_doctor_target(args)
-    response = call_llm_doctor(target, prompt)
+    try:
+        target = resolve_llm_doctor_target(args)
+        response = call_llm_doctor(target, prompt)
+        probe_ok = True
+        probe_error = ""
+    except SystemExit as exc:
+        target = {}
+        response = ""
+        probe_ok = False
+        probe_error = str(exc)
+    if not probe_ok:
+        error_report = (
+            "# Spark Doctor Report (probe failed)\n\n"
+            f"Problem: {problem}\n"
+            f"Probe error: {probe_error}\n\n"
+            "The LLM probe could not run. Possible causes:\n"
+            "  - API key not found in Spark secret store or environment\n"
+            "  - No network access to provider endpoint\n"
+            "  - Provider not yet configured (run `spark setup`)\n\n"
+            "Run `spark providers status` to check provider readiness.\n"
+        )
+        if getattr(args, "save_report", False):
+            path = write_doctor_report(error_report)
+            print(f"Saved partial Spark Doctor report: {path}")
+        print(error_report)
+        return 1
     report = (
         "# Spark Doctor Report\n\n"
         f"Provider: {target['provider']} ({target.get('model') or 'default'})\n"
@@ -9226,17 +15015,17 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     )
     if getattr(args, "save_report", False):
         path = write_doctor_report(report)
-        print(f"Saved Spark Doctor report: {path}")
+        print("Saved Spark Doctor report.")
     if getattr(args, "upstream_report", False):
         upstream = render_upstream_pr_candidate(problem, report)
         upstream_out = getattr(args, "upstream_out", None)
         if upstream_out:
             upstream_path = Path(upstream_out).expanduser()
-            upstream_path.parent.mkdir(parents=True, exist_ok=True)
-            upstream_path.write_text(upstream, encoding="utf-8")
+            require_write_allowed(upstream_path, safe_root=spark_write_safe_root(), subject="doctor upstream output")
+            atomic_write_text(upstream_path, upstream)
         else:
             upstream_path = write_doctor_report(upstream, prefix="spark-upstream-pr-candidate")
-        print(f"Saved sanitized upstream PR candidate: {upstream_path}")
+        print("Saved sanitized upstream PR candidate.")
         print("Review the checklist before opening a PR. Spark did not upload anything.")
     print(report)
     return 0
@@ -9245,14 +15034,16 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
 def collect_telegram_fix_payload() -> dict[str, Any]:
     status_payload = collect_status_payload()
     setup_state = load_json(CONFIG_PATH, {})
+    bundle_name = str(setup_state.get("bundle") or "telegram-starter") if isinstance(setup_state, dict) else "telegram-starter"
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     modules_by_name = {
         item.get("name"): item for item in status_payload.get("modules", []) if isinstance(item, dict)
     }
     telegram_result = modules_by_name.get("spark-telegram-bot")
     pids = status_payload.get("tracked_pids") if isinstance(status_payload.get("tracked_pids"), dict) else {}
-    telegram_pid = pids.get("spark-telegram-bot") if isinstance(pids, dict) else None
-
+    module_health, process_record, token_recorded = resolve_telegram_fix_health(
+        telegram_result, pids, tracked_process_keys_for_module(pids, "spark-telegram-bot"), pid_is_running, secret_keys, telegram_profile_secret_id(primary_telegram_profile(setup_state), "bot_token"))
+    process_running = process_record is not None
     env_values = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
     builder_env = read_generated_env(MODULE_CONFIG_DIR / "spark-intelligence-builder.env")
     llm_state = status_payload.get("llm") if isinstance(status_payload.get("llm"), dict) else {}
@@ -9271,19 +15062,16 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "starter_installed",
             "ok": bool(status_payload.get("modules")),
             "detail": "Spark starter modules are installed." if status_payload.get("modules") else "No installed Spark modules recorded.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     checks.append(
         {
             "name": "telegram_module_health",
-            "ok": bool(telegram_result and telegram_result.get("healthy") is True),
-            "detail": telegram_result.get("detail") if telegram_result else "spark-telegram-bot is not installed.",
-            "repair": "spark status",
+            **module_health,
         }
     )
     telegram_detail = str(telegram_result.get("detail", "")) if isinstance(telegram_result, dict) else ""
-    token_recorded = "telegram.bot_token" in secret_keys
     token_rejected = "telegram rejected bot_token" in telegram_detail.lower()
     checks.append(
         {
@@ -9296,7 +15084,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
                 if token_recorded and token_rejected
                 else "Telegram bot token is missing."
             ),
-            "repair": "spark setup --bot-token <BOTFATHER_TOKEN>",
+            "repair": telegram_token_repair_command("telegram.bot_token"),
         }
     )
     checks.append(
@@ -9313,7 +15101,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "builder_bridge",
             "ok": bridge_mode == "required" and bool(env_values.get("SPARK_BUILDER_HOME")),
             "detail": "Telegram is configured to require the Builder bridge." if bridge_mode == "required" else "Telegram is not configured to require the Builder bridge.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     memory_roots_ok = bool(
@@ -9326,7 +15114,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "builder_memory_roots",
             "ok": memory_roots_ok,
             "detail": "Builder has Spark home, domain-chip-memory, and Researcher roots." if memory_roots_ok else "Builder memory/Researcher roots are not fully wired.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     checks.append(
@@ -9337,26 +15125,15 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "repair": " ".join(llm_hints) if llm_hints else "",
         }
     )
-    process_running = False
-    process_record: dict[str, Any] | None = None
-    if isinstance(pids, dict):
-        for process_key in tracked_process_keys_for_module(pids, "spark-telegram-bot"):
-            candidate = pids.get(process_key)
-            if not isinstance(candidate, dict):
-                continue
-            if pid_is_running(int(candidate.get("pid", 0))):
-                process_record = candidate
-                process_running = True
-                break
     process_detail = (
         f"spark-telegram-bot is running under Spark supervision (pid {process_record.get('pid')})."
         if process_running and isinstance(process_record, dict)
         else "spark-telegram-bot is not running under Spark supervision."
     )
-    process_repair = "spark restart telegram-starter"
+    process_repair = f"spark restart {bundle_name}"
     if not process_running and polling_conflict:
         process_detail += " Recent logs show Telegram 409 getUpdates conflict, which means another copy of this bot is already polling Telegram."
-        process_repair = "Stop the other bot process or use a fresh BotFather token, then run `spark restart telegram-starter`."
+        process_repair = f"Stop the other bot process or use a fresh BotFather token, then run `spark restart {bundle_name}`."
     checks.append(
         {
             "name": "telegram_process",
@@ -9376,9 +15153,9 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "spark status",
             "spark verify --onboarding",
             "spark verify --deep",
-            "spark restart telegram-starter",
+            f"spark restart {bundle_name}",
             "spark logs spark-telegram-bot --lines 80",
-            "spark setup telegram-starter",
+            f"spark setup {bundle_name}",
         ],
     }
     payload["route_context"] = build_fix_route_context("telegram", payload)
@@ -9393,6 +15170,11 @@ def build_fix_route_context(target: str, payload: dict[str, Any]) -> dict[str, A
         for check in checks
         if isinstance(check, dict) and not bool(check.get("ok"))
     ]
+    failed_levels = {
+        str(check.get("level") or "error")
+        for check in checks
+        if isinstance(check, dict) and not bool(check.get("ok"))
+    }
     target_labels = {
         "telegram": "telegram_runtime",
         "spawner": "spawner_ui",
@@ -9435,7 +15217,13 @@ def build_fix_route_context(target: str, payload: dict[str, Any]) -> dict[str, A
         "reversibility": "reversible",
         "repair_target": target_labels.get(target, "spark_runtime"),
         "repair_scope": scope_labels.get(target, "local_repair_guidance"),
-        "health_evidence": "fresh_healthy" if ok else "fresh_degraded",
+        "health_evidence": (
+            "fresh_healthy"
+            if ok
+            else "fresh_unverified"
+            if failed_levels == {"warning"}
+            else "fresh_degraded"
+        ),
         "source_status": "present",
         "freshness": "current_turn",
         "joined_sources": ["spark-cli.fix", "spark-cli.status"],
@@ -9458,6 +15246,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     status_payload = collect_status_payload()
     provider_payload = provider_status_payload()
     status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    modules_installed = bool(status_modules)
     spawner_module = next(
         (module for module in status_modules if isinstance(module, dict) and module.get("name") == "spawner-ui"),
         None,
@@ -9525,13 +15314,27 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
             "summary": "Spark update repair",
             "checks": [
                 {
+                    "name": "installed modules",
+                    "ok": modules_installed,
+                    "detail": (
+                        "Spark modules are installed; update can check them safely."
+                        if modules_installed
+                        else "No installed Spark modules are recorded, so there is nothing for update to repair."
+                    ),
+                    "repair": "" if modules_installed else "spark setup telegram-starter",
+                },
+                {
                     "name": "dirty module safety",
-                    "ok": True,
+                    "ok": modules_installed,
                     "detail": "Use --skip-dirty when local module edits should not block clean modules from updating.",
-                    "repair": "",
+                    "repair": "" if modules_installed else "Install Spark modules before running update.",
                 }
             ],
-            "next_commands": ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"],
+            "next_commands": (
+                ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"]
+                if modules_installed
+                else ["spark setup telegram-starter", "spark status", "spark verify --onboarding"]
+            ),
         },
         "autostart": {
             "summary": "Spark autostart repair",
@@ -9548,6 +15351,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     }
     payload = recipes[target]
     payload["route_context"] = build_fix_route_context(target, payload)
+    payload["ok"] = all(bool(check.get("ok")) for check in payload.get("checks", []))
     return payload
 
 
@@ -9628,6 +15432,8 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
                 else "One or more installed autostart hook(s) look stale or writable by other local users."
+                if installed
+                else "No autostart hook is installed; run `spark autostart on --now` to add one."
             ),
             "repair": "spark autostart on --now",
         },
@@ -9643,6 +15449,7 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
         },
     ]
     return {
+        "ok": all(bool(check.get("ok")) for check in checks),
         "summary": "Spark autostart repair",
         "checks": checks,
         "hooks": hook_details,
@@ -9666,16 +15473,23 @@ def cmd_fix(args: argparse.Namespace) -> int:
             changed = result.get("changed", [])
             print("Spark log redaction")
             print("")
+            if result.get("blocked"):
+                detail = result.get("detail") or "Stop Spark services before redacting logs."
+                print(f"[FIX] {detail}")
+                print("      Run `spark stop`, rerun this command, then start Spark again.")
+                return 1
             if changed:
                 print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
                 for path in changed:
-                    print(f"      {path}")
+                    print(f"      {Path(path).name}")
             else:
                 print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
-            print("")
-            print("Next:")
-            print("  spark verify --deep")
-            return 0
+            failed = int(result.get("failed_files", 0))
+            if failed:
+                print(f"[FIX] Could not safely rewrite {failed} log file(s); their original contents were left intact.")
+            followup_code, followup_lines = redaction_followup(collect_secret_surface_payload())
+            print("\n".join(followup_lines))
+            return 1 if failed else followup_code
 
         payload = collect_secret_surface_payload()
         if args.json:
@@ -9696,6 +15510,43 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("  - Run `spark verify --deep` again before sharing any diagnostics upstream.")
         return 0 if payload.get("ok") else 1
 
+    if args.target == "modules":
+        orphans = scan_orphan_module_clones()
+        clean = bool(getattr(args, "clean", False))
+        removed: list[str] = []
+        if clean:
+            for orphan in orphans:
+                remove_orphan_clone(orphan)
+                if not orphan.exists():
+                    removed.append(str(orphan))
+            orphans = scan_orphan_module_clones()
+        payload = {
+            "ok": not orphans,
+            "orphans": [str(path) for path in orphans],
+            "removed": removed,
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print("Spark module clone check")
+        print("")
+        if removed:
+            print(f"[OK] Removed {len(removed)} incomplete module clone(s).")
+            for path in removed:
+                print(f"      {path}")
+            print("")
+        if payload["ok"]:
+            print("[OK] No incomplete module clones found.")
+        else:
+            print(f"[FIX] Found {len(orphans)} incomplete module clone(s) (.git present, spark.toml missing).")
+            for path in payload["orphans"]:
+                print(f"      {path}")
+            print("")
+            print("Repair:")
+            print("  - Run `spark fix modules --clean` to remove them, then rerun `spark setup` to re-clone.")
+            print("  - Manual fallback for any single module: rm -rf ~/.spark/modules/<name>")
+        return 0 if payload["ok"] else 1
+
     if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
         payload = collect_autostart_fix_payload() if args.target == "autostart" else collect_simple_fix_payload(args.target)
         if args.json:
@@ -9713,7 +15564,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("Hooks:")
             for hook in payload["hooks"]:
                 installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                print(f"  - {hook.get('name')}: installed={installed_text}")
                 for warning in hook.get("warnings", []):
                     print(f"      warning: {warning}")
         print("")
@@ -9721,17 +15572,16 @@ def cmd_fix(args: argparse.Namespace) -> int:
         for command in payload["next_commands"]:
             print(f"  {command}")
         return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
-
     if args.target != "telegram":
         raise SystemExit(f"Unknown fix target: {args.target}")
     payload = collect_telegram_fix_payload()
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0 if payload.get("ok") else 1
-    print(payload["summary"])
+    print(("Spark Telegram is ready." if payload.get("ok") else "Spark Telegram needs attention.") if getattr(args, "status_view", False) else payload["summary"])
     print("")
     for check in payload["checks"]:
-        marker = "[OK]" if check["ok"] else "[FIX]"
+        marker = "[OK]" if check["ok"] else "[WARN]" if check.get("level") == "warning" else "[FIX]"
         print(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
             print(f"      {check['repair']}")
@@ -9750,7 +15600,9 @@ def cmd_fix(args: argparse.Namespace) -> int:
 def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
+    prompted_secret_entry = "Copy the key, run setup, then type @clipboard when Spark asks."
     return {
+        "ok": True,
         "providers": [
             {
                 "id": "openai",
@@ -9758,7 +15610,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider openai --openai-api-key <key>",
+                "setup": "spark setup --llm-provider openai",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "codex",
@@ -9782,7 +15635,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider openrouter --openrouter-api-key <key> --openrouter-model <model>",
+                "setup": "spark setup --llm-provider openrouter --openrouter-model <model>",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "zai",
@@ -9790,7 +15644,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider zai --zai-api-key <key>",
+                "setup": "spark setup --llm-provider zai",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "kimi",
@@ -9798,7 +15653,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory", "mission"],
-                "setup": "spark setup --llm-provider kimi --kimi-api-key <key> --kimi-model <model>",
+                "setup": "spark setup --llm-provider kimi --kimi-model <model>",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "huggingface",
@@ -9806,7 +15662,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider huggingface --huggingface-api-key <key> --huggingface-model <model>",
+                "setup": "spark setup --llm-provider huggingface --huggingface-model <model>",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "lmstudio",
@@ -9822,7 +15679,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider minimax --minimax-api-key <key>",
+                "setup": "spark setup --llm-provider minimax",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "ollama",
@@ -9837,48 +15695,63 @@ def provider_catalog_payload() -> dict[str, Any]:
     }
 
 
+def unconfigured_provider_role_payload() -> dict[str, Any]:
+    provider = "not_configured"
+    provider_spec = LLM_PROVIDER_ENV[provider]
+    return {
+        "provider": provider,
+        "bot_provider": provider_spec["bot_provider"],
+        "model": "",
+        "auth_mode": provider,
+        "base_url": "",
+        "ready": False,
+    }
+
+
 def provider_status_payload() -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else None
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     if not isinstance(llm_state, dict):
-        return {
+        role_payload = {role: unconfigured_provider_role_payload() for role in LLM_ROLES}
+        repair_hints = [
+            "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider.",
+            *build_llm_repair_hints(
+                {"provider": "not_configured", "roles": role_payload},
+                secret_keys=secret_keys,
+            ),
+        ]
+        return with_configuration_readiness_scope({
             "ok": False,
             "configured": False,
             "summary": "No LLM provider is configured.",
-            "roles": {},
-            "repair_hints": ["Run `spark setup --llm-provider openai` or `spark setup --llm-provider codex` to choose a provider."],
-        }
+            "roles": role_payload,
+            "repair_hints": repair_hints,
+        })
     roles = llm_state.get("roles")
     if not isinstance(roles, dict):
         roles = {role: llm_state for role in LLM_ROLES}
     role_payload: dict[str, Any] = {}
+    codex_auth: dict[str, Any] | None = None
+    codex_client: dict[str, Any] | None = None
     for role in LLM_ROLES:
         state = roles.get(role, {})
         if not isinstance(state, dict):
             state = {}
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
-        auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+        configured_auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
         provider_spec = LLM_PROVIDER_ENV.get(provider, {})
         api_key_secret = provider_spec.get("api_key_secret")
-        if auth_mode == "not_configured":
-            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
-                auth_mode = "api_key"
-            elif api_key_secret and api_key_secret in secret_keys:
-                auth_mode = "api_key"
-            elif provider == "codex" and detect_codex_cli()["present"]:
-                auth_mode = "codex_oauth"
-            elif provider == "openai":
-                base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
-                if base_kind == "local":
-                    auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
-                    auth_mode = "codex_oauth"
-            elif provider == "anthropic" and detect_claude_code()["present"]:
-                auth_mode = "claude_oauth"
-            elif provider == "ollama":
-                auth_mode = "local"
-        role_payload[role] = {
+        auth_mode = effective_provider_auth_mode(
+            provider,
+            configured_auth_mode=configured_auth_mode,
+            api_key_configured=bool(state.get("api_key_configured") or llm_state.get("api_key_configured")),
+            stored_secret_configured=bool(api_key_secret and api_key_secret in secret_keys),
+            base_url_kind=openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")),
+            codex_cli_present=configured_auth_mode == "not_configured" and provider == "codex" and detect_codex_cli()["present"],
+            claude_cli_present=configured_auth_mode == "not_configured" and provider == "anthropic" and detect_claude_code()["present"],
+        )
+        role_state = {
             "provider": provider,
             "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
             "model": state.get("model") or llm_state.get("model") or "",
@@ -9886,14 +15759,28 @@ def provider_status_payload() -> dict[str, Any]:
             "base_url": state.get("base_url") or llm_state.get("base_url") or "",
             "ready": provider != "not_configured" and auth_mode != "not_configured",
         }
+        if provider in {"codex", "openai"} and auth_mode == "codex_oauth":
+            if codex_auth is None:
+                codex_auth = codex_cli_auth_payload()
+            role_state["codex_auth"] = codex_auth
+            if not codex_auth.get("ok"):
+                role_state["ready"] = False
+            if codex_client is None:
+                codex_client = codex_client_config_payload()
+            role_state["codex_client"] = codex_client
+            values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
+            client_model = _safe_codex_client_value(values.get("model"))
+            if client_model:
+                role_state["model"] = client_model
+        role_payload[role] = role_state
     repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
-    return {
+    return with_configuration_readiness_scope({
         "ok": not repair_hints,
         "configured": bool(llm_state.get("provider") and llm_state.get("provider") != "not_configured"),
         "summary": "Spark LLM provider roles",
         "roles": role_payload,
         "repair_hints": repair_hints,
-    }
+    })
 
 
 def resolve_provider_test_target(role: str, provider: str | None = None) -> dict[str, Any]:
@@ -9910,6 +15797,32 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
     try:
         target = resolve_provider_test_target(role, provider)
     except SystemExit as exc:
+        # Distinguish "not configured at all" from "configured but key not reachable".
+        role_state = configured_llm_role_state(role)
+        setup_state = load_json(CONFIG_PATH, {})
+        llm_top = setup_state.get("llm") if isinstance(setup_state, dict) else {}
+        secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
+        provider_for_check = str(role_state.get("provider") or (isinstance(llm_top, dict) and llm_top.get("provider")) or "")
+        spec_for_check = LLM_PROVIDER_ENV.get(provider_for_check, {})
+        api_key_secret = spec_for_check.get("api_key_secret", "")
+        key_configured_in_setup = bool(
+            role_state.get("api_key_configured")
+            or (isinstance(llm_top, dict) and llm_top.get("api_key_configured"))
+            or (api_key_secret and api_key_secret in secret_keys)
+        )
+        if key_configured_in_setup:
+            configured_provider = str(role_state.get("provider") or provider or "configured")
+            return {
+                "ok": False,
+                "role": role,
+                "provider": configured_provider,
+                "detail": (
+                    f"Provider {configured_provider} is configured in Spark setup, "
+                    "but the API key is not reachable from the test probe. "
+                    "The key may be stored in a platform-managed secret or env var."
+                ),
+                "repair": "spark providers status",
+            }
         return {
             "ok": False,
             "role": role,
@@ -9931,7 +15844,7 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
         }
     prompt = "Reply with exactly PING_OK. No extra words."
     try:
-        response = call_llm_doctor(target, prompt).strip()
+        response = call_llm_doctor(target, prompt, timeout_seconds=30).strip()
     except (SystemExit, urllib.error.URLError, TimeoutError, OSError) as exc:
         return {
             "ok": False,
@@ -9956,41 +15869,96 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    if not getattr(args, "providers_command", None):
+        print("spark providers: choose a subcommand\n")
+        print("  spark providers status    Show configured LLM roles and auth")
+        print("  spark providers test      Send a PING_OK probe to the chat provider")
+        print("  spark providers list      List all available providers")
+        print("  spark providers recommend Show recommended setup paths")
+        print("")
+        return 1
     if args.providers_command == "recommend":
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     if args.providers_command == "list":
         payload = provider_catalog_payload()
         if args.json:
+            # The catalog contains setup guidance and capability metadata, never credential values.
+            # codeql[py/clear-text-logging-sensitive-data]
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print("Spark LLM providers")
         for provider in payload["providers"]:
             auth = ", ".join(provider["auth"])
             oauth = "available" if provider["oauth_available"] else "not detected"
             print(f"{provider['id']:<10} {provider['label']:<16} auth={auth}; oauth={oauth}")
             print(f"           setup: {provider['setup']}")
+            if provider.get("secret_entry"):
+                # `secret_entry` is fixed operator guidance, not a secret or credential value.
+                # codeql[py/clear-text-logging-sensitive-data]
+                print(f"           secret: {provider['secret_entry']}")
         return 0
     if args.providers_command == "status":
         payload = provider_status_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
-        print(payload["summary"])
+        print(render_provider_status_heading(payload["summary"]))
         for role in LLM_ROLES:
             state = payload["roles"].get(role, {})
-            marker = "[OK]" if state.get("ready") else "[FIX]"
+            marker = "[READY]" if state.get("ready") else "[FIX]"
             print(
                 f"{marker} {role:<7} provider={state.get('provider', 'not_configured')} "
                 f"model={state.get('model') or 'not configured'} auth={state.get('auth_mode', 'not_configured')}"
             )
+            codex_client = state.get("codex_client") if isinstance(state, dict) else None
+            if isinstance(codex_client, dict) and codex_client.get("ok"):
+                values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
+                tier = values.get("service_tier") or "default"
+                effort = values.get("model_reasoning_effort") or "default"
+                print(f"          codex_client service_tier={tier} reasoning={effort}")
+            codex_auth = state.get("codex_auth") if isinstance(state, dict) else None
+            if isinstance(codex_auth, dict) and not codex_auth.get("ok"):
+                for note in codex_auth.get("notes", [])[:2]:
+                    print(f"          codex_auth: {note}")
         for hint in payload["repair_hints"]:
             print(f"Repair: {hint}")
         return 0 if payload["ok"] else 1
+    if args.providers_command == "codex":
+        updates = {
+            key: value
+            for key, value in {
+                "model": getattr(args, "model", None),
+                "model_reasoning_effort": getattr(args, "reasoning_effort", None),
+                "service_tier": getattr(args, "service_tier", None),
+            }.items()
+            if value is not None
+        }
+        payload = save_codex_client_config(updates) if updates else codex_client_config_payload()
+        payload["active_roles"] = codex_active_roles()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print("Spark Codex client config")
+        print("")
+        if payload.get("active_roles"):
+            print(f"Active Spark roles: {', '.join(payload['active_roles'])}")
+        else:
+            print("Active Spark roles: none currently using Codex")
+        values = payload.get("values") if isinstance(payload.get("values"), dict) else {}
+        print(f"model: {values.get('model') or 'default'}")
+        print(f"reasoning: {values.get('model_reasoning_effort') or 'default'}")
+        print(f"service_tier: {values.get('service_tier') or 'default'}")
+        if payload.get("updated"):
+            changed = "updated" if payload.get("changed") else "already set"
+            print(f"Change: {changed} ({', '.join(payload['updated'])})")
+        for note in payload.get("notes", []):
+            print(f"Note: {note}")
+        return 0 if payload.get("ok") else 1
     if args.providers_command == "test":
         payload = provider_test_payload(role=args.role, provider=args.provider)
         if args.json:
@@ -10006,7 +15974,8 @@ def cmd_providers(args: argparse.Namespace) -> int:
         if not payload.get("ok") and payload.get("repair"):
             print(f"Repair: {payload['repair']}")
         return 0 if payload["ok"] else 1
-    raise SystemExit(f"Unknown providers command: {args.providers_command}")
+    known = "recommend, list, status, codex, test"
+    raise SystemExit(f"Unknown providers command: {args.providers_command}. Known commands: {known}.")
 
 
 def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
@@ -10020,8 +15989,9 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
     print("  Anthropic Claude subscription: spark setup --llm-provider anthropic")
     print('     Verify first with:          claude -p "hello"')
     print("")
-    print("  Z.AI GLM API route:            spark setup --llm-provider zai --zai-api-key <key>")
-    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi --kimi-api-key <key>")
+    print("  Z.AI GLM API route:            spark setup --llm-provider zai")
+    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi")
+    print("     Copy the key first, then type @clipboard when Spark asks.")
     print("  Local/private desktop route:   spark setup --llm-provider lmstudio")
     print("  Local/private terminal:        spark setup --llm-provider ollama")
     print("")
@@ -10038,14 +16008,21 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
 
 
 def cmd_recommend(args: argparse.Namespace) -> int:
+    if not getattr(args, "recommend_command", None):
+        print("spark recommend: choose a subcommand")
+        print("")
+        print("  spark recommend llms        Show LLM provider options and setup commands")
+        print("  spark recommend providers   Same as llms")
+        print("")
+        return 1
     if args.recommend_command in {"llms", "providers"}:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
-    raise SystemExit(f"Unknown recommend command: {args.recommend_command}")
+    raise SystemExit(f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers.")
 
 
 def installed_record_path(installed: object, module_name: str) -> Path | None:
@@ -10064,6 +16041,9 @@ def prepend_pythonpath(env: dict[str, str], paths: list[Path]) -> None:
     if not present:
         return
     env["PYTHONPATH"] = os.pathsep.join([*present, existing]) if existing else os.pathsep.join(present)
+
+
+BUILDER_MEMORY_DIRECT_SMOKE_TIMEOUT_SECONDS = 30
 
 
 def collect_builder_memory_direct_smoke(
@@ -10120,16 +16100,25 @@ def collect_builder_memory_direct_smoke(
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
+            timeout=BUILDER_MEMORY_DIRECT_SMOKE_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
         return {
             "ok": False,
             "ran": True,
-            "detail": f"Builder memory direct smoke could not complete: {exc}",
+            "detail": (
+                "Builder memory direct smoke timed out after "
+                f"{BUILDER_MEMORY_DIRECT_SMOKE_TIMEOUT_SECONDS} seconds."
+            ),
             "repair": "spark setup telegram-starter",
         }
-    detail = summarize_command_output(result)
+    except OSError as error:
+        return {
+            "ok": False,
+            "ran": True,
+            "detail": f"Builder memory direct smoke could not start (error type: {type(error).__name__}).",
+            "repair": "spark setup telegram-starter",
+        }
     if result.returncode == 0:
         return {
             "ok": True,
@@ -10140,7 +16129,10 @@ def collect_builder_memory_direct_smoke(
     return {
         "ok": False,
         "ran": True,
-        "detail": detail or f"Builder memory direct smoke failed with exit {result.returncode}.",
+        "detail": (
+            f"Builder memory direct smoke failed with exit {result.returncode}. "
+            "No Builder or Memory state was accepted."
+        ),
         "repair": "spark setup telegram-starter",
     }
 
@@ -10261,8 +16253,7 @@ def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> t
     if swarm_root:
         bridge_src = swarm_root / "apps" / "bridge" / "src"
         if bridge_src.exists():
-            existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = str(bridge_src) if not existing else f"{bridge_src}{os.pathsep}{existing}"
+            prepend_pythonpath(env, [bridge_src])
     return (
         [
             python,
@@ -10558,7 +16549,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
         if not isinstance(record, dict):
             return False
         try:
-            return pid_is_running(int(record.get("pid", 0)))
+            return pid_is_running(int(record.get("pid") or 0))
         except (TypeError, ValueError):
             return False
 
@@ -10621,7 +16612,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 if telegram_security_ok
                 else "Telegram token/admin setup, long-polling mode, or generated secret hygiene needs repair."
             ),
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
 
@@ -10658,7 +16649,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 if builder_bridge_ok
                 else "Builder bridge, domain-chip-memory root, or spark-researcher root is not wired."
             ),
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     builder_ref_errors = builder_runtime_ref_errors(installed, gateway_env)
@@ -10675,7 +16666,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "repair": "spark update spark-intelligence-builder --skip-dirty --skip-install-commands",
         }
     )
-    voice_expected = VOICE_MODULE_NAME in expected_modules or bool(
+    voice_expected = managed_secret_runtime.VOICE_MODULE_NAME in expected_modules or bool(
         isinstance(setup_state, dict)
         and isinstance(setup_state.get("voice"), dict)
         and setup_state["voice"].get("enabled")
@@ -10687,7 +16678,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             and setup_state["voice"].get("elevenlabs_secret_configured")
         )
         voice_ok = (
-            VOICE_MODULE_NAME in installed_names
+            managed_secret_runtime.VOICE_MODULE_NAME in installed_names
             and bool(builder_env.get("SPARK_VOICE_COMMS_ROOT"))
             and "ELEVENLABS_API_KEY" not in builder_env
             and (not voice_secret_expected or "voice.elevenlabs.api_key" in secret_keys)
@@ -10717,7 +16708,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 "ok": bool(smoke.get("ok")),
                 "required": True,
                 "detail": str(smoke.get("detail") or ""),
-                "repair": str(smoke.get("repair") or "spark setup telegram-starter"),
+                "repair": str(smoke.get("repair") or f"spark setup {bundle_name}"),
             }
         )
 
@@ -10757,7 +16748,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "ok": process_ok,
             "required": True,
             "detail": process_detail,
-            "repair": "spark start telegram-starter",
+            "repair": f"spark start {bundle_name}",
         }
     )
 
@@ -10775,7 +16766,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "spark verify --onboarding",
             "spark verify --deep",
             "spark fix telegram",
-            "spark start telegram-starter",
+            f"spark start {bundle_name}",
             "spark logs spark-telegram-bot --lines 80",
             "spark logs spawner-ui --lines 80",
         ],
@@ -10915,7 +16906,7 @@ def tracked_runtime_uids() -> list[int]:
         if not isinstance(record, dict):
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             continue
         if not pid or not pid_is_running(pid):
@@ -11062,7 +17053,10 @@ def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
         normalized = host.strip().lower()
         host_without_port = normalized
         if normalized.startswith("[") and "]" in normalized:
-            host_without_port = normalized[1 : normalized.index("]")]
+            bracket_end = normalized.index("]")
+            host_without_port = normalized[1:bracket_end]
+            if normalized[bracket_end + 1 :]:
+                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
         elif normalized.count(":") == 1:
             host_without_port = normalized.split(":", 1)[0]
         if normalized in blocked:
@@ -11288,6 +17282,134 @@ def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
         "required": True,
         "detail": last_detail,
         "repair": "Check spark logs spawner-ui --lines 80 and verify the hosted mission provider has working credentials.",
+    }
+
+
+def _mission_provider_ready(provider: str) -> tuple[bool, str, str]:
+    """Pre-check the mission provider lane. Codex (the live default) is the usual cause of the audit's
+    1/97 mass-expiry, so require its CLI to be present; other providers are validated by the live
+    round-trip below."""
+    prov = (provider or "").strip().lower()
+    if prov in {"codex", "openai-codex"}:
+        if bool(detect_codex_cli().get("present")):
+            return True, "Mission provider 'codex' CLI is present.", ""
+        return (
+            False,
+            "Mission provider is codex but the OpenAI Codex CLI is not on PATH or not signed in; missions will 409 or expire.",
+            "Run `codex login` (and ensure the CLI is on PATH), then rerun `spark verify --mission`.",
+        )
+    return True, f"Mission provider '{provider}' will be validated by the live round-trip below.", ""
+
+
+def local_mission_completion_smoke(provider: str, timeout_seconds: int = 90) -> dict[str, Any]:
+    """Round-trip a real mission through the LOCAL spawner-ui and assert it COMPLETES (not expires).
+    Mirrors hosted_deep_mission_smoke for the local install; inside-out, by polling the board for a
+    unique marker the mission is told to emit. This is the authoritative mission-lane gate."""
+    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+    if not ui_key or not bridge_key:
+        return {
+            "name": "mission_completes",
+            "ok": False,
+            "required": True,
+            "detail": "Mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY in the environment.",
+            "repair": "Run the preflight in the spawner runtime env (keys are keychain-backed) or after `spark setup`, then rerun.",
+        }
+    base_url = (os.environ.get("SPAWNER_UI_URL") or "http://127.0.0.1:3333").rstrip("/")
+    marker = "SPARK_MISSION_PREFLIGHT_OK"
+    request_id = f"mission-preflight-{int(time.time())}"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-spawner-ui-key": ui_key,
+        "x-api-key": bridge_key,
+    }
+    payload = {
+        "goal": f"Reply with exactly: {marker}",
+        "providers": [provider or "codex"],
+        "promptMode": "simple",
+        "requestId": request_id,
+    }
+    try:
+        request = urllib.request.Request(
+            f"{base_url}/api/spark/run",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            start_payload = json.loads(response.read().decode("utf-8") or "{}")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        return {
+            "name": "mission_completes",
+            "ok": False,
+            "required": True,
+            "detail": f"Could not start a mission on the local spawner at {base_url}: {exc}",
+            "repair": "Start the spawner-ui (`spark start spawner-ui`) and confirm it answers on the URL, then rerun.",
+        }
+    mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
+    deadline = time.time() + timeout_seconds
+    last_detail = "Mission was accepted; waiting for it to complete."
+    while time.time() < deadline:
+        try:
+            request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
+            with urllib.request.urlopen(request, timeout=10) as response:
+                board_text = response.read().decode("utf-8")
+            if marker in board_text:
+                return {
+                    "name": "mission_completes",
+                    "ok": True,
+                    "required": True,
+                    "detail": f"A real mission ran to completion ({mission_id}) and emitted {marker}.",
+                    "repair": "",
+                }
+            if mission_id in board_text:
+                last_detail = f"Mission {mission_id} is on the board but has not completed yet."
+        except (OSError, TimeoutError, urllib.error.URLError) as exc:
+            last_detail = f"Board poll failed: {exc}"
+        time.sleep(3)
+    return {
+        "name": "mission_completes",
+        "ok": False,
+        "required": True,
+        "detail": f"{last_detail} The mission did not complete within {timeout_seconds}s (the silent-expiry symptom).",
+        "repair": "Check `spark logs spawner-ui --lines 80`; the mission provider (codex/harness) is most likely unavailable, or the Governor decision is unsigned (SPARK_GOVERNOR_HMAC_KEY).",
+    }
+
+
+def collect_mission_preflight_payload(timeout_seconds: int = 90) -> dict[str, Any]:
+    """Fresh-install preflight for the autonomous mission-execution lane. The authoritative gate is a
+    real round-trip mission completing; the Governor HMAC key (diagnostic) and the mission provider
+    (fail-fast) checks explain a failure rather than letting missions silently 409/expire."""
+    checks: list[dict[str, Any]] = []
+    hmac_present = bool((os.environ.get("SPARK_GOVERNOR_HMAC_KEY") or "").strip()) or bool(fetch_secret(GOVERNOR_HMAC_SECRET_ID))
+    checks.append({
+        "name": "governor_hmac_key",
+        "ok": hmac_present,
+        "level": "warning",
+        "detail": "Governor HMAC signing key is provisioned." if hmac_present
+        else "SPARK_GOVERNOR_HMAC_KEY not seen here; if the mission round-trip below fails, an unsigned/blocked Governor decision (governor_hmac_key_missing) is the likely cause.",
+        "repair": "" if hmac_present else "Run `spark setup` to generate and provision the key (or set SPARK_GOVERNOR_HMAC_KEY yourself), then restart Spark.",
+    })
+    provider = (os.environ.get("SPARK_MISSION_LLM_PROVIDER") or os.environ.get("SPARK_LLM_PROVIDER") or "codex").strip()
+    prov_ok, prov_detail, prov_repair = _mission_provider_ready(provider)
+    checks.append({"name": "mission_provider", "ok": prov_ok, "detail": prov_detail, "repair": prov_repair})
+    if prov_ok:
+        smoke = local_mission_completion_smoke(provider, timeout_seconds)
+    else:
+        smoke = {
+            "name": "mission_completes",
+            "ok": False,
+            "detail": "Skipped the live mission round-trip because the provider lane is not ready (see above).",
+            "repair": "Fix the mission provider, then rerun `spark verify --mission`.",
+        }
+    checks.append(smoke)
+    ok = bool(prov_ok and smoke.get("ok"))  # HMAC is diagnostic; the real gate is provider + a completed mission
+    return {
+        "ok": ok,
+        "summary": "Mission-execution preflight "
+        + ("PASSED: a real mission completed end to end." if ok else "FAILED: missions would not complete on this install (see fixes below)."),
+        "checks": checks,
     }
 
 
@@ -11525,7 +17647,7 @@ def onboarding_checklist() -> list[str]:
         "Open your Spark bot in Telegram.",
         "If Telegram asks for a start code, send /start.",
         "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
-        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK.",
+        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK. If the key is managed externally (e.g. by a host platform), skip this step and confirm readiness with spark providers status instead.",
         "Send /diagnose in Telegram and confirm Telegram, LLM, memory, and Spawner look OK.",
         "Send a normal message, then try a tiny build with /run say exactly OK.",
         "When you are ready, ask Spark how it can improve for your workflows.",
@@ -11621,6 +17743,14 @@ def print_hosted_security_payload(payload: dict[str, Any]) -> None:
             print(f"      {check['repair']}")
 
 
+def cmd_release_gate(args: argparse.Namespace) -> int:
+    # Binding release gate (item 0.3, docs/33 §§1-4). Thin delegate: the machinery lives in
+    # spark_cli.release_gate so the pre-push hook can run it without importing this module.
+    from spark_cli import release_gate
+
+    return release_gate.main(list(args.release_gate_args))
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     if getattr(args, "registry_pins", False):
         payload = collect_registry_pin_drift_payload()
@@ -11631,6 +17761,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
+            if not check.get("verified", True):
+                if check.get("verification_status") == "private_source_unavailable":
+                    print(f"WARNING: {check['name']} pin not verified (private source unavailable)")
+                else:
+                    status = check.get("verification_status") or "unverified"
+                    print(f"WARNING: {check['name']} pin not verified ({status})")
             print(f"      pinned: {check['pinned_commit']}")
             if check.get("remote_head"):
                 print(f"      remote: {check['remote_head']}")
@@ -11650,12 +17786,33 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 print(f"      warning: {warning}")
         return 0 if payload["ok"] else 1
 
-    if getattr(args, "installers", False):
+    if getattr(args, "r30", False):
+        payload = collect_r30_release_gate_payload(hosted=bool(getattr(args, "hosted_installers", False)))
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print(payload["summary"])
+        print(f"Release: {payload['release']}")
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+        return 0 if payload["ok"] else 1
+
+    if getattr(args, "installers", False) or getattr(args, "hosted_installers", False):
         payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
         print(payload["summary"])
+        hosted_release = payload.get("hosted_release")
+        if isinstance(hosted_release, dict):
+            marker = "[OK]" if hosted_release.get("fresh") else "[FIX]"
+            release = hosted_release.get("release") or "<unknown release>"
+            source_ref = hosted_release.get("ref") or hosted_release.get("commit") or "<unknown ref>"
+            print("Hosted release freshness:")
+            print(f"{marker} published: {release} @ {source_ref}")
+            print(f"      verified: {hosted_release.get('verified_at') or '<unknown time>'}")
+            print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_ref') or hosted_release.get('expected_commit') or '<unknown ref>'}")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
@@ -11666,6 +17823,19 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     if getattr(args, "sandboxes", False):
         payload = collect_sandbox_verify_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print(payload["summary"])
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[WARN]" if check.get("level") == "warning" else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("repair"):
+                print(f"      {check['repair']}")
+        return 0 if payload["ok"] else 1
+
+    if getattr(args, "mission", False):
+        payload = collect_mission_preflight_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
@@ -11766,9 +17936,19 @@ def resolve_installed_target_modules(target: str | None) -> list[Module]:
     for name in names:
         module = modules.get(name)
         if module is None:
-            raise SystemExit(f"Unknown installed module: {name}")
+            raise SystemExit(unknown_installed_module_message(name, modules))
         resolved.append(module)
     return resolved
+
+
+def unknown_installed_module_message(name: str, installed: dict[str, Module] | list[str]) -> str:
+    if isinstance(installed, dict):
+        names = sorted(installed)
+    else:
+        names = sorted(installed)
+    if not names:
+        return f"Unknown installed module: {name}. No modules are installed; run `spark install` first."
+    return f"Unknown installed module: {name}. Installed: {', '.join(names)}."
 
 
 def reverse_dependency_map(modules: dict[str, Module]) -> dict[str, set[str]]:
@@ -11813,7 +17993,7 @@ def resolve_start_modules(target: str | None, installed_modules: dict[str, Modul
         name = stack.pop()
         module = installed_modules.get(name)
         if module is None:
-            raise SystemExit(f"Unknown installed module: {name}")
+            raise SystemExit(unknown_installed_module_message(name, installed_modules))
         if name in needed_names:
             continue
         needed_names.add(name)
@@ -12016,6 +18196,11 @@ def wait_for_ready_check(
             time.sleep(0.2)
         return True, "process is running"
 
+    if ready_check.startswith(("http://", "https://")):
+        url_errors = validate_local_health_url(ready_check, label=f"{module.name} ready check URL")
+        if url_errors:
+            return False, " ".join(url_errors)
+
     deadline = time.time() + timeout_seconds
     last_error = "ready check did not pass before timeout"
     while time.time() < deadline:
@@ -12036,8 +18221,11 @@ def wait_for_ready_check(
                 return False, f"process exited with code {exit_code}"
         if ready_check.startswith(("http://", "https://")):
             try:
-                request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
-                with urllib.request.urlopen(request, timeout=2) as response:
+                request = urllib.request.Request(
+                    ready_check,
+                    headers=ready_check_headers(ready_check, module_name=module.name),
+                )
+                with local_health_urlopen(request, timeout=2) as response:
                     if 200 <= int(response.status) < 400:
                         return True, ready_check
                     last_error = f"ready check returned HTTP {response.status}"
@@ -12067,16 +18255,32 @@ def wait_for_ready_check(
     return False, f"ready check did not pass within {timeout_seconds}s: {last_error}"
 
 
-def ready_check_headers(ready_check: str) -> dict[str, str]:
-    if not ready_check.startswith(("http://", "https://")):
-        return {}
-    parsed = urllib.parse.urlparse(ready_check)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        return {}
-    key = os.environ.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY")
-    if not key:
-        return {}
-    return {"x-spawner-ui-key": key, "x-api-key": key}
+def ready_check_headers(ready_check: str, *, module_name: str | None = None) -> dict[str, str]:
+    return managed_secret_runtime.ready_check_headers(sys.modules[__name__], ready_check, module_name=module_name)
+
+
+class _RejectLocalHealthRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        file_pointer: Any,
+        code: int,
+        message: str,
+        headers: Any,
+        new_url: str,
+    ) -> None:
+        return None
+
+
+def local_health_urlopen(request: urllib.request.Request, *, timeout: int):
+    errors = validate_local_health_url(request.full_url)
+    if errors:
+        raise urllib.error.URLError(" ".join(errors))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _RejectLocalHealthRedirects(),
+    )
+    return opener.open(request, timeout=timeout)
 
 
 def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None:
@@ -12104,7 +18308,7 @@ def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None
         return None
     try:
         script_parts = split_single_argv_command(script, "Package script")
-    except SystemExit:
+    except (SystemExit, ValueError):
         return None
     if not script_parts:
         return None
@@ -12156,12 +18360,15 @@ def windows_service_creationflags() -> int:
 
 def listening_pid_for_tcp_port(port: int) -> int | None:
     if os.name != "nt":
-        result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return None
         if result.returncode != 0:
             return None
         for line in result.stdout.splitlines():
@@ -12173,12 +18380,15 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             except ValueError:
                 continue
         return None
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode != 0:
         return None
     suffix = f":{port}"
@@ -12220,13 +18430,15 @@ def module_runtime_listener_ports(module: Module, profile: str | None = None) ->
 
 
 def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> int:
+    launched_pid = int(process.pid)
+    launched_running = pid_is_running(launched_pid)
     for port in module_runtime_listener_ports(module, profile):
         pid = listening_pid_for_tcp_port(port)
         if pid and pid_is_running(pid):
+            if int(pid) != launched_pid and launched_running:
+                continue
             return pid
-    if pid_is_running(process.pid):
-        return int(process.pid)
-    return int(process.pid)
+    return launched_pid
 
 
 def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid: int) -> None:
@@ -12235,18 +18447,24 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
-        if isinstance(record, dict) and int(record.get("pid", 0)) == int(launched_pid):
+        if isinstance(record, dict) and int(record.get("pid") or 0) == int(launched_pid):
             record["pid"] = int(runtime_pid)
             record["launcher_pid"] = int(launched_pid)
             save_pids(pids)
 
 
 def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
+    if not module_names:
+        return (
+            False,
+            "No Spark-supervised runtime processes are expected from the current install state. "
+            "Install or repair the starter bundle first.",
+        )
     missing: list[str] = []
     running_names: list[str] = []
     for name in module_names:
         record = pids.get(name) if isinstance(pids, dict) else None
-        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
         if pid and pid_is_running(pid):
             running_names.append(f"{name} (pid {pid})")
         else:
@@ -12282,17 +18500,43 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
         argv = replace_or_append_flag(argv, "--host", bind_host)
     if bind_port:
         argv = replace_or_append_flag(argv, "--port", bind_port)
+        if "--strictPort" not in argv:
+            argv.append("--strictPort")
     return argv
 
 
+def spawner_ready_listener_conflict_detail(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> str | None:
+    if module.name != "spawner-ui":
+        return None
+    launched_pid = int(process.pid)
+    if not pid_is_running(launched_pid):
+        return None
+    for port in module_runtime_listener_ports(module, profile):
+        listener_pid = listening_pid_for_tcp_port(port)
+        if listener_pid and listener_pid != launched_pid and pid_is_running(listener_pid):
+            return (
+                f"claimed Spawner port {port} is held by pid {listener_pid}, "
+                f"not launched pid {launched_pid}; refusing stale readiness"
+            )
+    return None
+
+
 def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
-    return bool(
-        running_as_hosted_context()
-        or env.get("SPARK_LIVE_CONTAINER")
-        or env.get("RAILWAY_ENVIRONMENT")
-        or env.get("SPARK_ALLOWED_HOSTS")
-        or str(env.get("SPARK_HOSTED_PRIVATE_PREVIEW") or "").strip().lower() in {"1", "true", "yes", "on"}
-    )
+    # Spawner liveness is separate from provider readiness; provider details
+    # stay visible through `spark providers status`.
+    return True
+
+
+def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    pids = load_pids()
+    for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
+        record = pids.get(process_key)
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
+        if pid and pid_is_running(pid):
+            return True
+    return False
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
@@ -12329,9 +18573,13 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
-    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names and not external_telegram:
+    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
         for profile, profile_state in sorted(profiles.items()):
-            if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
+            if (
+                isinstance(profile_state, dict)
+                and telegram_profile_should_autostart(profile_state)
+                and telegram_profile_has_startable_token(str(profile))
+            ):
                 process_key = module_process_key("spark-telegram-bot", str(profile))
                 if process_key not in names:
                     names.append(process_key)
@@ -12353,7 +18601,7 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
         pid = 0
         if isinstance(record, dict):
             try:
-                pid = int(record.get("pid", 0))
+                pid = int(record.get("pid") or 0)
             except (TypeError, ValueError):
                 pid = 0
         statuses.append(
@@ -12400,6 +18648,13 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
 
 
 def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: str | None = None) -> bool:
+    if module.name in BRIDGE_CONSUMER_MODULES:
+        with process_log_lock(BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+            return _start_module_unlocked(module, allow_boot_warnings=allow_boot_warnings, profile=profile)
+    return _start_module_unlocked(module, allow_boot_warnings=allow_boot_warnings, profile=profile)
+
+
+def _start_module_unlocked(module: Module, *, allow_boot_warnings: bool = False, profile: str | None = None) -> bool:
     command = module.run_command
     if not command:
         return True
@@ -12418,27 +18673,6 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         profile=profile,
     )
 
-    subprocess_env = module_runtime_env(module, profile)
-    argv = module_runtime_command_argv(module, command, module.path, subprocess_env)
-    ready_check = module_runtime_ready_check(module, subprocess_env)
-    relay_port = 0
-    if module.name == "spark-telegram-bot":
-        relay_port_raw = (subprocess_env.get("TELEGRAM_RELAY_PORT") or "").strip()
-        try:
-            relay_port = int(relay_port_raw or "0")
-        except ValueError:
-            relay_port = 0
-    popen_kwargs: dict[str, Any] = {
-        "cwd": str(module.path),
-        "shell": False,
-        "stderr": subprocess.STDOUT,
-        "env": subprocess_env,
-    }
-    if os.name == "nt":
-        popen_kwargs["creationflags"] = windows_service_creationflags()
-    else:
-        popen_kwargs["start_new_session"] = True
-
     with pid_file_lock():
         pids = load_pids()
         existing = pids.get(process_key)
@@ -12448,6 +18682,12 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
                 print(f"Skipping {display_name}: already running (pid {existing_pid})")
                 return True
             pids.pop(process_key, None)
+        # Resolve under the PID lock so promotion cannot spawn a stale generation.
+        subprocess_env, argv, ready_check, relay_port, popen_kwargs = (
+            managed_secret_runtime.prepare_module_launch(
+                sys.modules[__name__], module, command, profile
+            )
+        )
         if module.name == "spark-telegram-bot" and relay_port:
             stale_listener_note = terminate_same_user_listener_on_port(relay_port, label=display_name)
             if stale_listener_note:
@@ -12458,6 +18698,12 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         popen_kwargs["stdout"] = log_handle
         try:
             process = subprocess.Popen(argv, **popen_kwargs)
+        except OSError as exc:
+            log_handle.close()
+            safe_detail = redact_shareable_text(str(exc))
+            print(f"Failed to start {display_name}: {safe_detail}")
+            append_process_log(module.name, f"spawn failed detail={safe_detail}", profile=profile)
+            return False
         finally:
             log_handle.close()
         pids[process_key] = {
@@ -12474,6 +18720,18 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     print(f"Started {display_name} (pid {process.pid})")
     ready, detail = wait_for_ready_check(module, process=process, profile=profile, ready_check_override=ready_check)
     if ready:
+        conflict_detail = spawner_ready_listener_conflict_detail(module, process, profile)
+        if conflict_detail:
+            print(f"Start warning for {display_name}: {conflict_detail}")
+            append_process_log(module.name, f"start warning pid={process.pid} detail={conflict_detail}", profile=profile)
+            stop_module(display_name, process.pid)
+            with pid_file_lock():
+                latest_pids = load_pids()
+                latest_record = latest_pids.get(process_key, {})
+                if int(latest_record.get("pid", 0)) == int(process.pid):
+                    latest_pids.pop(process_key, None)
+                    save_pids(latest_pids)
+            return False
         runtime_pid = discover_runtime_pid(module, process, profile)
         update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
         pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"
@@ -12495,7 +18753,39 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     return ready
 
 
+def command_json_messages(output: str) -> list[str]:
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def emit_process_command_json(command: str, args: argparse.Namespace, exit_code: int, output: str) -> int:
+    payload: dict[str, Any] = {
+        "ok": exit_code == 0,
+        "command": command,
+        "target": getattr(args, "target", None) or "all",
+        "profile": normalize_telegram_profile(getattr(args, "profile", None)),
+        "exit_code": exit_code,
+        "messages": command_json_messages(output),
+    }
+    if hasattr(args, "cascade"):
+        payload["cascade"] = bool(getattr(args, "cascade", False))
+    print(json.dumps(payload, indent=2))
+    return exit_code
+
+
+def run_process_command_json(command: str, args: argparse.Namespace, handler: Callable[[argparse.Namespace], int]) -> int:
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = handler(args)
+    return emit_process_command_json(command, args, exit_code, output.getvalue())
+
+
 def cmd_start(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("start", args, cmd_start_plain)
+    return cmd_start_plain(args)
+
+
+def cmd_start_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     modules = resolve_installed_modules()
     if not modules:
@@ -12533,19 +18823,45 @@ def stop_module(name: str, pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
     else:
         try:
+            os.kill(pid, 0)
+        except OSError:
+            print(f"{name} (pid {pid}) is not running")
+            return
+        try:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if not pid_is_running(pid):
+                break
+            time.sleep(0.1)
+        else:
+            sigkill = getattr(signal, "SIGKILL", None)
+            if sigkill is None:
+                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+            else:
+                try:
+                    os.killpg(pid, sigkill)
+                except OSError:
+                    subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
     print(f"Stopped {name} (pid {pid})")
 
 
 def stop_tracked_process_key(process_key: str) -> bool:
+    if process_key == "spawner-ui" or process_key.startswith("spark-telegram-bot"):
+        with process_log_lock(BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+            return _stop_tracked_process_key_unlocked(process_key)
+    return _stop_tracked_process_key_unlocked(process_key)
+
+
+def _stop_tracked_process_key_unlocked(process_key: str) -> bool:
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
         if not isinstance(record, dict):
             return False
-        pid = int(record.get("pid", 0))
+        pid = int(record.get("pid") or 0)
         if pid and pid_is_running(pid):
             stop_module(process_key, pid)
         pids.pop(process_key, None)
@@ -12554,6 +18870,16 @@ def stop_tracked_process_key(process_key: str) -> bool:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("stop", args, cmd_stop_plain)
+    return cmd_stop_plain(args)
+
+
+def cmd_stop_plain(args: argparse.Namespace) -> int:
+    return managed_secret_runtime.run_stop_command_locked(sys.modules[__name__], args)
+
+
+def _cmd_stop_plain_unlocked(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
     if not pids:
@@ -12574,12 +18900,18 @@ def cmd_stop(args: argparse.Namespace) -> int:
         else:
             target_names = resolve_exact_stop_module_names(args.target, installed_modules, pids)
     for name in target_names:
-        if not stop_tracked_process_key(name):
+        if not _stop_tracked_process_key_unlocked(name):
             print(f"Skipping {name}: no tracked pid")
     return 0
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("restart", args, cmd_restart_plain)
+    return cmd_restart_plain(args)
+
+
+def cmd_restart_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     installed_modules = resolve_installed_modules()
     if not installed_modules:
@@ -12591,10 +18923,10 @@ def cmd_restart(args: argparse.Namespace) -> int:
         if "spark-telegram-bot" not in requested_names:
             print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
         else:
-            stop_code = cmd_stop(args)
             module = installed_modules["spark-telegram-bot"]
             if not emit_runtime_supply_chain_guard([module], args):
                 return 1
+            stop_code = cmd_stop_plain(args)
             start_code = 0
             if not start_module(
                 module,
@@ -12602,7 +18934,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
                 profile=profile,
             ):
                 start_code = 1
-            return start_code or stop_code
+            return start_code
     restart_modules = (
         resolve_restart_modules(args.target, installed_modules, load_pids())
         if getattr(args, "cascade", False)
@@ -12610,7 +18942,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
     )
     if not emit_runtime_supply_chain_guard(restart_modules, args):
         return 1
-    stop_code = cmd_stop(args)
+    stop_code = cmd_stop_plain(args)
     start_code = 0
     for module in restart_modules:
         if not module.run_command:
@@ -12627,7 +18959,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
             continue
         if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
             start_code = 1
-    return start_code or stop_code
+    return start_code
 
 
 def spark_invocation_args() -> list[str]:
@@ -12927,7 +19259,7 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    return '"' + value.replace('"', '""').replace('%', '%%').replace('&', '^&') + '"'
 
 
 def write_windows_startup_script(path: Path, start_command: str) -> None:
@@ -13259,17 +19591,14 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
         if startup_path.exists():
             startup_path.unlink()
             print(f"Removed Windows Startup fallback: {startup_path}")
-            failures = 0 if failures else failures
         legacy_cmd_path = windows_startup_legacy_cmd_path()
         if legacy_cmd_path.exists():
             legacy_cmd_path.unlink()
             print(f"Removed legacy Windows Startup fallback: {legacy_cmd_path}")
-            failures = 0 if failures else failures
         run_key_command = ["reg", "delete", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME, "/F"]
         result = run_autostart_helper(run_key_command)
         if result.returncode == 0:
             print(f"Removed Windows Run-key fallback: {AUTOSTART_WINDOWS_TASK_NAME}")
-            failures = 0 if failures else failures
         return 1 if failures else 0
 
     raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
@@ -13283,7 +19612,7 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
         print(f"Telegram profile is not configured: {profile}")
         print("Configure it first with:")
-        print(f"  spark setup --profile {profile} --bot-token <BOTFATHER_TOKEN>")
+        print(f"  spark telegram connect {profile}")
         return 1
     profiles[profile]["autostart"] = enabled
     save_json(CONFIG_PATH, setup_state)
@@ -13294,7 +19623,10 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_autostart_status(_: argparse.Namespace) -> int:
+def cmd_autostart_status(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        args.target = "autostart"
+        return cmd_fix(args)
     profiles = autostart_telegram_profiles()
     profile_text = ", ".join(profiles) if profiles else "none"
     configured = configured_telegram_profiles()
@@ -13313,7 +19645,6 @@ def cmd_autostart_status(_: argparse.Namespace) -> int:
         if startup_path is not None:
             print_autostart_file_audit("WSL Windows-login fallback", startup_path, expected_command=expected_start_command)
         return 0
-
     if sys.platform.startswith("linux"):
         scope = linux_autostart_scope()
         service_path = linux_autostart_path(scope)
@@ -13390,18 +19721,141 @@ def module_log_path(module_name: str, profile: str | None = None) -> Path:
     return LOG_DIR / module_name / "process.log"
 
 
+@contextmanager
+def process_log_lock(path: Path, timeout_seconds: float = 5.0):
+    lock_path = path.with_name(f".{path.name}.lock")
+    flags = (
+        os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOINHERIT", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    fd = os.open(lock_path, flags, PRIVATE_FILE_MODE)
+    with os.fdopen(fd, "a+b") as handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        deadline = time.monotonic() + timeout_seconds
+        if sys.platform == "win32":
+            import msvcrt
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for the Spark process-log lock.")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for the Spark process-log lock.")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def bounded_process_log_entry(message: str) -> bytes:
+    prefix = f"[spark-cli {timestamp_now()}] ".encode("utf-8")
+    suffix = b"\n"
+    marker = b" [truncated]"
+    entry_limit = max(1, min(MAX_PROCESS_LOG_ENTRY_BYTES, MAX_PROCESS_LOG_BYTES))
+    body_limit = max(0, entry_limit - len(prefix) - len(suffix))
+    body = message.rstrip().encode("utf-8", errors="replace")
+    if len(body) > body_limit:
+        retained_limit = max(0, body_limit - len(marker))
+        retained = body[:retained_limit].decode("utf-8", errors="ignore").encode("utf-8")
+        body = (retained + marker)[:body_limit]
+    return (prefix + body + suffix)[:entry_limit]
+
+
+def compact_process_log(path: Path, max_bytes: int) -> None:
+    flags = (
+        os.O_RDWR
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOINHERIT", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "r+b") as handle:
+        file_size = os.fstat(handle.fileno()).st_size
+        if file_size <= max_bytes:
+            return
+        handle.seek(-max_bytes, os.SEEK_END)
+        retained = handle.read(max_bytes)
+        newline = retained.find(b"\n")
+        retained = retained[newline + 1 :] if newline >= 0 else b""
+        handle.seek(0)
+        handle.write(retained)
+        handle.truncate()
+        handle.flush()
+
+
 def append_process_log(module_name: str, message: str, profile: str | None = None) -> None:
     path = module_log_path(module_name, profile)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8", errors="replace") as handle:
-        handle.write(f"[spark-cli {timestamp_now()}] {message.rstrip()}\n")
+    entry = bounded_process_log_entry(message)
+    with process_log_lock(path):
+        if path.is_symlink():
+            raise OSError("Refusing to append through a linked Spark process log.")
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_APPEND
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        fd = os.open(path, flags, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, "ab") as handle:
+            handle.write(entry)
+            handle.flush()
+        compact_process_log(path, MAX_PROCESS_LOG_BYTES)
 
 
 def tail_log_lines(path: Path, line_count: int) -> list[str]:
-    if not path.exists():
+    if path.is_symlink():
         return []
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOINHERIT", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return []
+    with os.fdopen(fd, "rb") as handle:
+        file_size = os.fstat(handle.fileno()).st_size
+        read_size = min(file_size, MAX_LOG_TAIL_BYTES)
+        if read_size <= 0:
+            return []
+        start = file_size - read_size
+        handle.seek(start)
+        data = handle.read(read_size)
+    if start > 0:
+        newline = data.find(b"\n")
+        data = data[newline + 1 :] if newline >= 0 else b""
+    lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
+    lines = [
+        f"{line[:-2]}\n" if line.endswith("\r\n") else f"{line[:-1]}\n" if line.endswith("\r") else line
+        for line in lines
+    ]
     if line_count <= 0:
         return lines
     return lines[-line_count:]
@@ -13442,6 +19896,9 @@ def save_user_config(config: dict[str, Any]) -> None:
     save_json(USER_CONFIG_PATH, config)
 
 
+CONFIG_MISSING = object()
+
+
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     parts = key.split(".")
     current: Any = config
@@ -13452,7 +19909,13 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
+def validate_config_key(key: str) -> None:
+    if not key or any(not part for part in key.split(".")):
+        raise ValueError("config key must contain non-empty dot-separated segments")
+
+
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    validate_config_key(key)
     parts = key.split(".")
     current = config
     for part in parts[:-1]:
@@ -13465,6 +19928,7 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    validate_config_key(key)
     parts = key.split(".")
     current: Any = config
     for part in parts[:-1]:
@@ -13483,32 +19947,42 @@ def coerce_config_value(raw: str) -> Any:
         return json.loads(raw)
     except (TypeError, ValueError):
         return raw
-
-
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key)
-    if value is None:
+    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    missing = value is CONFIG_MISSING
+    if bool(getattr(args, "json", False)):
+        payload = {"ok": not missing, "key": args.key, "value": None if missing else value, "set": not missing}
+        print(json.dumps(payload, indent=2))
+        return 1 if missing else 0
+    if missing:
         print(f"{args.key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
+    elif value is None:
+        print("null")
     else:
         print(value)
     return 0
-
-
 def cmd_config_set(args: argparse.Namespace) -> int:
     config = load_user_config()
     value = coerce_config_value(args.value)
-    dotted_set(config, args.key, value)
+    try:
+        dotted_set(config, args.key, value)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
-
-
 def cmd_config_unset(args: argparse.Namespace) -> int:
     config = load_user_config()
-    if not dotted_unset(config, args.key):
+    try:
+        removed = dotted_unset(config, args.key)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if not removed:
         print(f"{args.key} was not set")
         return 1
     save_user_config(config)
@@ -13526,11 +20000,11 @@ def cmd_config_list(_: argparse.Namespace) -> int:
 
 
 INIT_SPARK_TOML_TEMPLATE = """[module]
-name = "{name}"
+name = {name}
 version = "0.1.0"
 kind = "service"
 plane = "execution"
-description = "{description}"
+description = {description}
 license = "UNLICENSED"
 
 [runtime]
@@ -13556,13 +20030,13 @@ routes = []
 [healthcheck]
 command = "{healthcheck_command}"
 timeout_seconds = 10
-success_hint = "{name} is healthy."
+success_hint = {success_hint}
 failure_hint = "Run the healthcheck command from the module home for detail."
 
 [paths]
-home = "~/.spark/modules/{name}"
-state = "~/.spark/state/{name}"
-logs = "~/.spark/logs/{name}"
+home = {home}
+state = {state}
+logs = {logs}
 """
 
 
@@ -13585,6 +20059,43 @@ INIT_README_TEMPLATE = """# {name}
 """
 
 
+INIT_AGENTS_MD_TEMPLATE = """# {name} Agent Ruleset
+
+## Repo role
+
+`{name}` is a Spark module: {description}
+
+`spark.toml` is the source of truth for module identity, runtime needs, capabilities, claims, health, and owned paths. This file guides contributors and agents; it is not runtime authority.
+
+## Start of work
+
+1. Check the worktree state and read `AGENTS.md`, `README.md`, and `spark.toml`.
+2. Confirm the requested change belongs to this module rather than another Spark owner.
+3. Name the smallest behavior, authority boundary, and stop-ship condition before editing.
+4. Run focused checks before broader tests and keep each commit reviewable.
+
+## Authority and source truth
+
+- Claims describe capability; they do not grant permission to execute an action.
+- Keep writes within the module paths declared by `spark.toml` unless an explicit approved capability says otherwise.
+- Keep secret access and network routes within the manifest contract. Never log secret values.
+- External publication, destructive changes, credential or identity changes, and high-agency execution require explicit authority and confirmation.
+- Generated artifacts, logs, cached state, and prior mission results are evidence, not permission or canonical source state.
+- Surface failures honestly. Do not convert missing evidence, denied work, or exceptions into success-shaped output.
+
+## Privacy
+
+Do not commit or expose credentials, private identifiers, raw conversations, provider output, memory bodies, or machine-specific paths when redacted metadata is sufficient.
+
+## Verification
+
+- Run the manifest healthcheck before and after relevant changes: `{healthcheck_command}`
+- Add focused tests for changed behavior and authority boundaries.
+- Run the module's broader test/build gate before release-risk changes.
+- Run `git diff --check` and inspect the final worktree state.
+"""
+
+
 INIT_GITIGNORE_PYTHON = """__pycache__/
 *.py[cod]
 .venv/
@@ -13603,9 +20114,15 @@ npm-debug.log*
 
 
 INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
+INIT_MAX_NAME_LENGTH = 64
 
 
 def validate_init_module_name(name: str) -> None:
+    if len(name) > INIT_MAX_NAME_LENGTH:
+        raise SystemExit(
+            "Module name is too long "
+            f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
+        )
     if not INIT_VALID_NAME.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
@@ -13624,11 +20141,15 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     else:
         raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
     return INIT_SPARK_TOML_TEMPLATE.format(
-        name=name,
-        description=description,
+        name=json.dumps(name),
+        description=json.dumps(description),
         runtime_kind=runtime_kind,
         runtime_version=runtime_version,
         healthcheck_command=healthcheck,
+        success_hint=json.dumps(f"{name} is healthy."),
+        home=json.dumps(f"~/.spark/modules/{name}"),
+        state=json.dumps(f"~/.spark/state/{name}"),
+        logs=json.dumps(f"~/.spark/logs/{name}"),
     )
 
 
@@ -13636,6 +20157,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
+    agents_md = target_dir / "AGENTS.md"
     gitignore = target_dir / ".gitignore"
 
     spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
@@ -13649,11 +20171,19 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
         ),
         encoding="utf-8",
     )
+    agents_md.write_text(
+        INIT_AGENTS_MD_TEMPLATE.format(
+            name=name,
+            description=description,
+            healthcheck_command=healthcheck_command,
+        ),
+        encoding="utf-8",
+    )
     gitignore.write_text(
         INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
         encoding="utf-8",
     )
-    return [spark_toml, readme, gitignore]
+    return [spark_toml, readme, agents_md, gitignore]
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -13688,6 +20218,14 @@ def cmd_search(args: argparse.Namespace) -> int:
             continue
         hits.append((name, summary, blessed, name in installed))
 
+    if getattr(args, "json", False):
+        results = [
+            {"name": name, "summary": summary, "blessed": blessed, "installed": installed_flag}
+            for name, summary, blessed, installed_flag in sorted(hits)
+        ]
+        print(json.dumps({"ok": True, "query": query or None, "count": len(results), "results": results}, indent=2))
+        return 0
+
     if not hits:
         print("No matching modules." if query else "Registry has no modules.")
         return 1 if query else 0
@@ -13702,19 +20240,22 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_secrets_list(_: argparse.Namespace) -> int:
-    index = list_stored_secrets()
-    if not index:
-        print("No stored secrets.")
-        return 0
-    print(f"{len(index)} secret(s) stored:")
-    for secret_id, backend in sorted(index.items()):
-        print(f"  {secret_id}\t[{backend}]")
+def cmd_secrets_list(args: argparse.Namespace) -> int:
+    # This renderer emits only secret IDs and backend labels, never stored values.
+    # codeql[py/clear-text-logging-sensitive-data]
+    print(render_stored_secret_listing(list_stored_secrets(), json_output=bool(getattr(args, "json", False))))
     return 0
 
 
 def cmd_secrets_set(args: argparse.Namespace) -> int:
-    if args.value is not None:
+    if args.secret_id == BRIDGE_API_KEY_SECRET_ID and args.value is not None:
+        raise SystemExit(
+            "Refusing --value for spark.bridge_api_key because command arguments may be recorded. "
+            "Use --generate or the masked prompt."
+        )
+    if getattr(args, "generate", False):
+        value = py_secrets.token_urlsafe(32)
+    elif args.value is not None:
         value = args.value
     elif stdin_is_tty():
         value = read_secret_interactive(
@@ -13725,27 +20266,48 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     value = resolve_secret_input(value)
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
+    if args.secret_id == BRIDGE_API_KEY_SECRET_ID:
+        managed_secret_runtime.rotate_managed_bridge_api_key(
+            sys.modules[__name__], value, backend=args.backend
+        )
+        print("Rotated spark.bridge_api_key; restored the prior bridge consumer set.")
+        return 0
     backend = store_secret(args.secret_id, value, preferred=args.backend)
+    # codeql[py/clear-text-logging-sensitive-data]
     print(f"Stored {args.secret_id} in {backend}.")
     return 0
 
 
 def cmd_secrets_get(args: argparse.Namespace) -> int:
     value = fetch_secret(args.secret_id)
+    if bool(getattr(args, "json", False)):
+        is_set = value is not None
+        # Presence JSON contains the ID, a boolean, and a fixed `***` marker only.
+        # codeql[py/clear-text-logging-sensitive-data]
+        print(render_secret_presence(args.secret_id, is_set=is_set))
+        return 0 if is_set else 1
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
+        # `spark secrets get --reveal` is an explicit local operator command.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
         masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+        # The value is masked by default; the printed id is a label.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
     return 0
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
     if delete_secret(args.secret_id):
+        # This prints only the secret label after deletion.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"Deleted {args.secret_id}.")
         return 0
+    # This prints only the secret label.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(f"No value stored for {args.secret_id}.")
     return 1
 
@@ -13753,8 +20315,12 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 def cmd_logs(args: argparse.Namespace) -> int:
     installed = resolve_installed_modules()
     if args.target not in installed:
-        raise SystemExit(f"Unknown installed module: {args.target}")
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
+        raise SystemExit(unknown_installed_module_message(args.target, installed))
+    requested_profile = getattr(args, "profile", None)
+    if args.target == "spark-telegram-bot" and requested_profile is None:
+        profile = primary_telegram_profile()
+    else:
+        profile = normalize_telegram_profile(requested_profile)
     if profile != DEFAULT_TELEGRAM_PROFILE and args.target != "spark-telegram-bot":
         raise SystemExit("--profile only applies to spark-telegram-bot logs.")
     path = module_log_path(args.target, profile)
@@ -13812,7 +20378,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     stopped_processes: list[str] = []
     for module in modules:
         if module_is_git_managed(module.path):
-            ok, detail = update_module_source(module)
+            ok, detail = update_module_source(module, allow_rollback=getattr(args, "allow_rollback", False))
             print(f"git update {module.name}: {'ok' if ok else 'failed'} - {detail}")
             if not ok:
                 print(f"Update stopped before touching running processes for {module.name}.")
@@ -13829,7 +20395,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         for process_key in process_keys:
             with pid_file_lock():
                 record = load_pids().get(process_key, {})
-            pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+            pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
             if pid and pid_is_running(pid):
                 print(f"Stopping {process_key} before update so install commands can replace locked files.")
                 stopped_processes.append(process_key)
@@ -13878,6 +20444,8 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_uninstall(args: argparse.Namespace) -> int:
     if getattr(args, "all", False) and args.target:
         raise SystemExit("Use either a target or --all, not both.")
+    if not getattr(args, "all", False) and not args.target:
+        raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
 
@@ -13894,13 +20462,19 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         failures += cmd_autostart_uninstall(argparse.Namespace())
 
     if not modules:
-        print("No installed Spark modules recorded.")
+        named_target = getattr(args, "target", None) if not getattr(args, "all", False) else None
+        if named_target:
+            print(f"Unknown installed module: {named_target}. No modules are installed; run `spark install` first.")
+        else:
+            print("No installed Spark modules recorded.")
         if getattr(args, "remove_user_path", False):
             removed = remove_spark_bin_from_windows_user_path()
             print("Removed Spark bin from Windows user PATH." if removed else "Spark bin was not present in Windows user PATH.")
         if getattr(args, "purge_home", False):
             removed_home = purge_spark_home()
             print(f"Removed Spark home: {SPARK_HOME}" if removed_home else f"Spark home was not present: {SPARK_HOME}")
+        if named_target:
+            return 1
         return 1 if failures else 0
     removed_names: list[str] = []
     for module in modules:
@@ -13933,6 +20507,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 def onboarding_guide_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "title": "Spark starter guide",
         "goal": "Install Spark, choose how it thinks, connect Telegram, then start chatting and building with your agent.",
         "operating_systems": ["Windows PowerShell/CMD", "macOS Terminal", "Linux shell", "WSL Ubuntu shell"],
@@ -13979,16 +20554,16 @@ def onboarding_guide_payload() -> dict[str, Any]:
             ],
             "llm_examples": [
                 "spark setup",
-                "spark setup --llm-provider codex --codex-model gpt-5.5",
+                f"spark setup --llm-provider codex --codex-model {CODEX_DEFAULT_MODEL}",
                 "spark setup --llm-provider anthropic",
-                "spark setup --llm-provider zai --zai-api-key <ZAI_API_KEY>",
-                "spark setup --llm-provider kimi --kimi-api-key <KIMI_API_KEY>",
-                "spark setup --llm-provider openrouter --openrouter-api-key <OPENROUTER_API_KEY> --openrouter-model <MODEL>",
-                "spark setup --llm-provider huggingface --huggingface-api-key <HF_TOKEN> --huggingface-model <MODEL>",
-                "spark setup --llm-provider minimax --minimax-api-key <MINIMAX_API_KEY>",
+                "spark setup --llm-provider zai",
+                "spark setup --llm-provider kimi",
+                "spark setup --llm-provider openrouter --openrouter-model <MODEL>",
+                "spark setup --llm-provider huggingface --huggingface-model <MODEL>",
+                "spark setup --llm-provider minimax",
                 "spark setup --llm-provider ollama --ollama-url http://localhost:11434 --ollama-model <MODEL>",
-                "spark setup --llm-provider openai --openai-api-key <OPENAI_API_KEY> --openai-model gpt-5.5",
-                "spark setup --with-voice --elevenlabs-api-key @clipboard",
+                f"spark setup --llm-provider openai --openai-model {OPENAI_DEFAULT_MODEL}",
+                "spark setup --with-voice",
                 "spark setup --agent-llm-provider zai --mission-llm-provider codex",
                 "spark setup --chat-llm-provider openai --builder-llm-provider openai --memory-llm-provider ollama --mission-llm-provider minimax",
             ],
@@ -14045,7 +20620,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "Use named profiles when you want one or more Telegram bots on the same Spark install.",
             "Each profile gets its own bot token, local relay port, pid, and log file.",
             "Profiles still share the same local Builder, memory, LLM roles, and Spawner unless you intentionally split those later.",
-            "Example: spark setup --profile qa-bot --bot-token @clipboard --admin-telegram-ids <YOUR_TELEGRAM_ID>",
+            "PowerShell example: spark setup --profile qa-bot --bot-token '@clipboard' --admin-telegram-ids <YOUR_TELEGRAM_ID>",
+            "macOS/Linux example: spark setup --profile qa-bot --bot-token @clipboard --admin-telegram-ids <YOUR_TELEGRAM_ID>",
             "Then run: spark start spark-telegram-bot --profile qa-bot",
         ],
         "access_levels": [
@@ -14076,9 +20652,15 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark fix autostart", "use": "Targeted login-startup repair checklist: installed hooks, stale paths, permissions, and Telegram profile selection." },
             { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, preview links, or Mission Control is not reachable." },
             { "command": "spark providers test --role chat", "use": "Send a tiny PING_OK probe through the selected chat LLM." },
+            { "command": "spark browser-use status", "use": "Check browser-use package, CLI, and latest proof receipt without starting a browser." },
+            { "command": "spark browser-use probe", "use": "Prove browser-use can open a page, read state, and capture a screenshot." },
+            { "command": "spark browser-use open <url>", "use": "Open a URL with browser-use and return page evidence." },
+            { "command": "spark browser-use screenshot <url>", "use": "Open a URL and capture a screenshot." },
+            { "command": "spark browser-use task [--url <url>] <goal>", "use": "Run a multi-step Browser Use Agent task and save a receipt." },
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
+            { "command": "spark drift sentinel", "use": "Run registry, OS compile, release-lane, runtime-health, and Harness vendor drift checks." },
             { "command": "spark os compile", "use": "Compile a redacted local Spark OS system map, authority view, capability catalog, trace index, memory movement index, and gaps report." },
             { "command": "spark os authority", "use": "Inspect redacted access, sandbox, browser approval, and publication authority contracts." },
             { "command": "spark os capabilities", "use": "Inspect redacted capability cards for Labs and Swarm surfaces." },
@@ -14112,15 +20694,18 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
-            { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
+            { "command": "spark verify [--onboarding|--deep|--installers|--hosted-installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, local or hosted installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
+            { "command": "spark release-gate capture|check|hook-check|install-hooks", "use": "Bind the ship gate: persist verify --r30 captures into the ship artifact, validate per-check waivers, and refuse registry-pin/tag/installer pushes while the latest capture is red or stale." },
+            { "command": "spark drift sentinel [--json|--dm-telegram]", "use": "Run the daily drift sentinel over registry pins, release-lane mirrors, OS compile, runtime health, and Harness vendor hashes." },
             { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
             { "command": "spark access status|guide|setup|disable-level5", "use": "Prepare, explain, and verify Spark workspace access, optional sandbox lanes, and explicit Level 5 guardrail state." },
             { "command": "spark providers list|status|test|recommend", "use": "Inspect, test, and choose LLM provider wiring." },
+            { "command": "spark browser-use status|install|probe|open|screenshot|task", "use": "Inspect, prove, and use the browser-use adapter for browser evidence and task loops." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
-            { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
-            { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
+            { "command": "spark sandbox status|docker|ssh|modal", "use": "Summarize sandbox lane readiness, run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
+            { "command": "spark approval status|classify -- <command>", "use": "Show execution-enforcement truth or inspect a report-only command classification." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
             { "command": "spark update [target]", "use": "Refresh installed modules from current source paths." },
             { "command": "spark uninstall [target]", "use": "Remove installed modules and generated config." },
@@ -14129,7 +20714,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark restart [target]", "use": "Restart modules or starter bundles." },
             { "command": "spark live status|start|run|restart|stop|logs|verify", "use": "Control and inspect Spark Live." },
             { "command": "spark autostart install|on|uninstall|off|profile|status", "use": "Control OS login startup and per-profile autostart." },
-            { "command": "spark guide [--advanced|--json]", "use": "Show onboarding, advanced guidance, and this command reference." },
+            { "command": "spark guide [topic] [--advanced|--json]", "use": "Show onboarding, advanced guidance, and this command reference; topic records the requested install, setup, Telegram, provider, voice, security, or update lane." },
             { "command": "spark init <name>", "use": "Scaffold a new Spark module." },
             { "command": "spark search [query]", "use": "Search the local blessed registry." },
             { "command": "spark config get|set|unset|list", "use": "Read or write user config at ~/.spark/config/config.json." },
@@ -14153,11 +20738,16 @@ def onboarding_guide_payload() -> dict[str, Any]:
 
 def cmd_guide(args: argparse.Namespace) -> int:
     payload = onboarding_guide_payload()
+    topic = str(getattr(args, "topic", "") or "").strip().lower()
+    if topic:
+        payload["selected_topic"] = topic
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
         return 0
 
     print(payload["title"])
+    if topic:
+        print(f"Topic: {topic}")
     print(payload["goal"])
     print("Works on: " + ", ".join(payload["operating_systems"]))
     print("")
@@ -14222,17 +20812,53 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+def positive_int_arg(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {value!r}"
+        ) from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {parsed}"
+        )
+    return parsed
+
+
+def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
+    original_error = group_parser.error
+
+    def friendly_error(message: str) -> None:
+        if message and "arguments are required" in message:
+            group_parser.print_usage(sys.stderr)
+            sys.stderr.write(
+                f"\n{group_parser.prog} needs a subcommand. Try one of: "
+                f"{', '.join(subcommands)}.\n"
+            )
+            sys.exit(2)
+        original_error(message)
+
+    group_parser.error = friendly_error  # type: ignore[method-assign]
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
+    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
+    list_parser.add_argument("--json", action="store_true", help="Emit machine-readable module metadata")
     list_parser.set_defaults(func=cmd_list)
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
     install_parser.add_argument("target")
-    install_parser.add_argument("--skip-install-commands", action="store_true")
+    install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
     install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
+    install_parser.add_argument(
+        "--allow-dirty-runtime",
+        action="store_true",
+        help="Allow installing from a managed runtime clone with local git changes",
+    )
     install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
     install_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
     install_parser.set_defaults(func=cmd_install)
@@ -14245,7 +20871,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(load_registry_definition().get("bundles", {}).keys()),
         help="Bundle to configure (default: telegram-starter)",
     )
-    setup_parser.add_argument("--skip-install-commands", action="store_true")
+    setup_parser.add_argument("--skip-install-commands", action="store_true", help="Skip install commands (pip install, npm install) for all bundle modules")
     setup_parser.add_argument(
         "--run-install-commands",
         action="store_true",
@@ -14366,7 +20992,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--zai-model", default="glm-5.1")
     setup_parser.add_argument("--openai-api-key", help="OpenAI API key, @clipboard, @env:NAME, or @file:path; optional for local OpenAI-compatible servers")
     setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1", help="OpenAI-compatible base URL, for example https://api.openai.com/v1 or http://localhost:1234/v1 for LM Studio")
-    setup_parser.add_argument("--openai-model", default="gpt-5.5", help="OpenAI/OpenAI-compatible model name")
+    setup_parser.add_argument("--openai-model", default=OPENAI_DEFAULT_MODEL, help="OpenAI/OpenAI-compatible model name")
     setup_parser.add_argument("--anthropic-api-key", help="Anthropic Claude API key, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--anthropic-base-url", default="https://api.anthropic.com")
     setup_parser.add_argument("--anthropic-model", default="sonnet")
@@ -14387,7 +21013,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--elevenlabs-api-key", help="Optional ElevenLabs API key for Spark voice, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
     setup_parser.add_argument("--ollama-model", default="llama3.2:3b")
-    setup_parser.add_argument("--codex-model", default="gpt-5.5")
+    setup_parser.add_argument("--codex-model", default=CODEX_DEFAULT_MODEL)
     setup_parser.set_defaults(func=cmd_setup)
 
     onboard_parser = subparsers.add_parser("onboard", help="Resume setup, start Spark, and open the first Telegram chat")
@@ -14406,38 +21032,62 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_parser.set_defaults(func=cmd_onboard)
 
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
-    os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
+    os_subparsers = os_parser.add_subparsers(dest="os_command", required=False)
+    def _cmd_os_help(args: argparse.Namespace) -> int:
+        print("spark os: choose a subcommand\n")
+        print("  spark os compile        Compile a read-only Spark OS system map")
+        print("  spark os capabilities   Inspect compiled capability cards")
+        print("  spark os authority      Inspect compiled authority contracts")
+        print("  spark os trace          Inspect compiled trace health")
+        print("  spark os memory         Inspect compiled memory movement")
+        print("")
+        return 1
+    os_parser.set_defaults(func=_cmd_os_help)
     os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
-    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
     os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
+    os_compile_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when dirty repos or critical duplicate truths are present",
+    )
+    os_compile_parser.add_argument(
+        "--strict-scope",
+        choices=("all", "release-lane"),
+        default="all",
+        help="Choose whether --strict checks the whole repo board or only registry-pinned installed release modules",
+    )
     os_compile_parser.set_defaults(func=cmd_os_compile)
     os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
-    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
     os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
     os_authority_parser = os_subparsers.add_parser("authority", help="Inspect compiled Spark authority contracts")
-    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
+    os_authority_parser.add_argument("--output", "-o", help="Write --json output atomically to a governed file")
     os_authority_parser.set_defaults(func=cmd_os_authority)
     os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
-    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
+    os_trace_parser.add_argument("--output", "-o", help="Write --json output atomically to a governed file")
     os_trace_parser.set_defaults(func=cmd_os_trace)
     os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
-    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
     os_memory_parser.set_defaults(func=cmd_os_memory)
+    _wrap_subgroup_help(os_parser, ["compile", "capabilities", "authority", "trace", "memory"])
 
     status_parser = subparsers.add_parser("status", help="Run module healthchecks")
     status_parser.add_argument("--json", action="store_true")
@@ -14468,7 +21118,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_llm_parser.set_defaults(func=cmd_doctor)
 
     support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
-    support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
+    support_subparsers = support_parser.add_subparsers(dest="support_command", required=False)
+    def _cmd_support_help(args: argparse.Namespace) -> int:
+        print("spark support: choose a subcommand\n")
+        print("  spark support bundle              Write a local redacted support archive")
+        print("  spark support bundle --include-logs  Include redacted log tails")
+        print("")
+        return 1
+    support_parser.set_defaults(func=_cmd_support_help)
     support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
     support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
     support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
@@ -14480,17 +21137,44 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--deep", action="store_true", help="Run live write/read memory smoke checks in addition to static wiring checks")
     verify_parser.add_argument("--onboarding", action="store_true", help="Run first-user onboarding checks and print the Telegram finish checklist")
     verify_parser.add_argument("--installers", action="store_true", help="Verify installer script hashes against the committed manifest")
-    verify_parser.add_argument("--hosted-installers", action="store_true", help="Also compare agent.sparkswarm.ai installers against the committed manifest")
+    verify_parser.add_argument("--hosted-installers", action="store_true", help="Compare agent.sparkswarm.ai installers against the committed manifest; implies --installers")
     verify_parser.add_argument("--hosted", action="store_true", help="Verify hosted Docker/Railway security posture")
     verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
     verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
+    verify_parser.add_argument("--r30", action="store_true", help="Run the Spark R30 release gate without publishing or changing installer pins")
     verify_parser.add_argument("--sandboxes", action="store_true", help="Verify optional SSH/Modal sandbox readiness without running cloud smoke jobs")
+    verify_parser.add_argument("--mission", action="store_true", help="Preflight the autonomous mission lane: Governor HMAC key, mission provider, and a real round-trip mission completing (not silently expiring)")
     verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")
     verify_parser.add_argument("--proof", action="store_true", help="With --specialization-loop, read canonical status packets without starting runs")
     verify_parser.set_defaults(func=cmd_verify)
 
+    release_gate_parser = subparsers.add_parser(
+        "release-gate",
+        help="Binding release gate: persist verify captures, validate waivers, refuse red-gate pushes (docs/33)",
+    )
+    release_gate_parser.add_argument("release_gate_args", nargs=argparse.REMAINDER)
+    release_gate_parser.set_defaults(func=cmd_release_gate)
+
+    drift_parser = subparsers.add_parser("drift", help="Run read-only drift sentinels")
+    drift_subparsers = drift_parser.add_subparsers(dest="drift_command", required=True)
+    drift_sentinel_parser = drift_subparsers.add_parser("sentinel", help="Run the daily registry/runtime/vendor drift sentinel")
+    drift_sentinel_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    drift_sentinel_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    drift_sentinel_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+    drift_sentinel_parser.add_argument("--json", action="store_true", help="Emit the full sentinel payload as JSON")
+    drift_sentinel_parser.add_argument("--dm-telegram", action="store_true", help="Send the redacted sentinel summary to configured Telegram admins")
+    drift_sentinel_parser.add_argument("--profile", default=None, help="Telegram profile to use with --dm-telegram; defaults to the configured primary profile")
+    drift_sentinel_parser.set_defaults(func=cmd_drift)
+    _wrap_subgroup_help(drift_parser, ["sentinel"])
+
     smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
-    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
+    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=False)
+    def _cmd_smoke_help(args: argparse.Namespace) -> int:
+        print("spark smoke: choose a subcommand\n")
+        print("  spark smoke first-run   Run first-run smoke checks")
+        print("")
+        return 1
+    smoke_parser.set_defaults(func=_cmd_smoke_help)
     first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
     first_run_smoke_parser.add_argument("--json", action="store_true")
     first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
@@ -14500,10 +21184,11 @@ def build_parser() -> argparse.ArgumentParser:
     fix_parser.add_argument(
         "target",
         nargs="?",
-        choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
+        choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart", "modules"],
         default="telegram",
     )
     fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
+    fix_parser.add_argument("--clean", action="store_true", help="For `spark fix modules`, remove incomplete module clones (.git present, spark.toml missing) so they can be re-cloned")
     fix_parser.add_argument("--json", action="store_true")
     fix_parser.set_defaults(func=cmd_fix)
 
@@ -14518,11 +21203,45 @@ def build_parser() -> argparse.ArgumentParser:
     providers_status_parser = providers_sub.add_parser("status", help="Show chat/build/memory/mission provider readiness")
     providers_status_parser.add_argument("--json", action="store_true")
     providers_status_parser.set_defaults(func=cmd_providers)
+    providers_codex_parser = providers_sub.add_parser("codex", help="Inspect or update Codex CLI client config when Spark uses Codex")
+    providers_codex_parser.add_argument("--model", help="Set the top-level Codex CLI model")
+    providers_codex_parser.add_argument("--reasoning-effort", choices=CODEX_REASONING_EFFORTS, help="Set Codex CLI reasoning effort")
+    providers_codex_parser.add_argument("--service-tier", help="Set Codex CLI service tier, for example fast")
+    providers_codex_parser.add_argument("--json", action="store_true")
+    providers_codex_parser.set_defaults(func=cmd_providers)
     providers_test_parser = providers_sub.add_parser("test", help="Send a tiny PING_OK probe through one configured role")
     providers_test_parser.add_argument("--role", choices=LLM_ROLES, default="chat", help="LLM role to test")
     providers_test_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider")
     providers_test_parser.add_argument("--json", action="store_true")
     providers_test_parser.set_defaults(func=cmd_providers)
+
+    browser_use_parser = subparsers.add_parser("browser-use", help="Install, inspect, and probe the optional browser-use adapter")
+    browser_use_sub = browser_use_parser.add_subparsers(dest="browser_use_command")
+    browser_use_status_parser = browser_use_sub.add_parser("status", help="Show browser-use package, CLI, and proof receipt status")
+    browser_use_status_parser.add_argument("--json", action="store_true")
+    browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
+    browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
+    browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+    browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
+    browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
+    browser_use_probe_parser.add_argument("--json", action="store_true")
+    browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
+    browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
+    browser_use_open_parser.add_argument("url")
+    browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
+    browser_use_open_parser.add_argument("--json", action="store_true")
+    browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
+    browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
+    browser_use_screenshot_parser.add_argument("url")
+    browser_use_screenshot_parser.add_argument("--json", action="store_true")
+    browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
+    browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
+    browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
+    browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
+    browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
+    browser_use_task_parser.add_argument("--json", action="store_true")
+    browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
+    browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
 
     recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")
     recommend_sub = recommend_parser.add_subparsers(dest="recommend_command", required=True)
@@ -14532,6 +21251,7 @@ def build_parser() -> argparse.ArgumentParser:
     recommend_providers_parser = recommend_sub.add_parser("providers", help="Recommend LLM providers for Spark")
     recommend_providers_parser.add_argument("--json", action="store_true")
     recommend_providers_parser.set_defaults(func=cmd_recommend)
+    _wrap_subgroup_help(recommend_parser, ["llms", "providers"])
 
     security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
     security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
@@ -14542,9 +21262,20 @@ def build_parser() -> argparse.ArgumentParser:
     security_audit_parser.set_defaults(func=cmd_security)
     security_revoke_parser = security_subparsers.add_parser(
         "revoke-all",
-        help="Panic button: stop Spark, rotate local control keys, remove local secrets, and write a support bundle",
+        help="Plan or run full local credential revocation; start with --dry-run to review the changes",
+        description=(
+            "Plan or run Spark's full local credential revocation response. "
+            "Start with --dry-run to review what Spark will stop, remove, and rotate."
+        ),
     )
-    security_revoke_parser.add_argument("--dry-run", action="store_true", help="Report what would change without mutating local state")
+    security_revoke_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Report the planned stops, secret removals, key rotations, mission pauses, "
+            "and support bundle without mutating local state"
+        ),
+    )
     security_revoke_parser.add_argument("--include-logs", action="store_true", help="Include redacted logs in the support bundle")
     security_revoke_parser.add_argument("--json", action="store_true")
     security_revoke_parser.set_defaults(func=cmd_security)
@@ -14578,9 +21309,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     access_disable_parser.add_argument("--json", action="store_true")
     access_disable_parser.set_defaults(func=cmd_access)
+    _wrap_subgroup_help(access_parser, ["status", "guide", "setup", "disable-level5"])
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
+    sandbox_status_parser = sandbox_subparsers.add_parser("status", help="Summarize local sandbox lane readiness without starting one")
+    sandbox_status_parser.add_argument("--json", action="store_true")
+    sandbox_status_parser.set_defaults(func=cmd_sandbox)
     sandbox_docker_parser = sandbox_subparsers.add_parser("docker", help="Run Docker sandbox readiness checks")
     sandbox_docker_subparsers = sandbox_docker_parser.add_subparsers(dest="docker_command", required=True)
     sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
@@ -14591,6 +21326,12 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_docker_smoke_parser.add_argument("--image", default="", help="Docker image tag to build/run")
     sandbox_docker_smoke_parser.add_argument("--no-build", action="store_true", help="Use an existing sandbox image instead of building")
     sandbox_docker_smoke_parser.add_argument("--network", action="store_true", help="Allow bridge networking for this explicit smoke")
+    sandbox_docker_smoke_parser.add_argument(
+        "--timeout",
+        type=positive_int_arg,
+        default=180,
+        help="Maximum seconds for each Docker doctor, build, and run step (default: 180)",
+    )
     sandbox_docker_smoke_parser.set_defaults(func=cmd_sandbox)
 
     sandbox_ssh_parser = sandbox_subparsers.add_parser("ssh", help="Manage SSH remote sandbox targets")
@@ -14634,9 +21375,13 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_modal_smoke_parser = sandbox_modal_subparsers.add_parser("smoke", help="Run Modal no-secret smoke")
     sandbox_modal_smoke_parser.add_argument("--json", action="store_true")
     sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
+    _wrap_subgroup_help(sandbox_parser, ["status", "docker", "ssh", "modal"])
 
     approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
     approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
+    approval_status_parser = approval_subparsers.add_parser("status", help="Show classifier and execution-enforcement truth")
+    approval_status_parser.add_argument("--json", action="store_true")
+    approval_status_parser.set_defaults(func=cmd_approval)
     approval_classify_parser = approval_subparsers.add_parser("classify", help="Report whether a command should require approval")
     approval_classify_parser.add_argument("--json", action="store_true")
     approval_classify_parser.add_argument("--hosted", action="store_true", help="Classify as a hosted/VPS action")
@@ -14644,9 +21389,12 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
-
+    _wrap_subgroup_help(approval_parser, ["status", "classify"])
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
+    telegram_status_parser = telegram_sub.add_parser("status", help="Show fresh Telegram runtime and repair status")
+    telegram_status_parser.add_argument("--json", action="store_true", help="Emit status as structured JSON")
+    telegram_status_parser.set_defaults(func=cmd_fix, target="telegram", status_view=True)
     telegram_connect_parser = telegram_sub.add_parser("connect", help="Connect a BotFather token to a Spark Telegram profile")
     telegram_connect_parser.add_argument(
         "profile",
@@ -14668,12 +21416,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     telegram_connect_parser.add_argument("--no-restart", action="store_true", help="Save the token without restarting the bot")
     telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
-
+    _wrap_subgroup_help(telegram_parser, ["status", "connect"])
     update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
     update_parser.add_argument("target", nargs="?")
-    update_parser.add_argument("--skip-install-commands", action="store_true")
+    update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
     update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
     update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
+    update_parser.add_argument("--allow-rollback", action="store_true", help="Permit updating a module to a registry pin older than its current commit")
     update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
     update_parser.add_argument("--no-live-restart", action="store_true", help="Do not restart Spark Live after updating stopped runtime services")
     update_parser.set_defaults(func=cmd_update)
@@ -14692,12 +21441,14 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
     start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
     start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
+    start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
     start_parser.add_argument("target", nargs="?")
     start_parser.set_defaults(func=cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
     stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
     stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
+    stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
     stop_parser.add_argument("target", nargs="?")
     stop_parser.set_defaults(func=cmd_stop)
 
@@ -14705,6 +21456,7 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
+    restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
     restart_parser.add_argument("target", nargs="?")
     restart_parser.set_defaults(func=cmd_restart)
 
@@ -14732,7 +21484,7 @@ def build_parser() -> argparse.ArgumentParser:
     live_stop_parser = live_subparsers.add_parser("stop", help="Stop Spark Live")
     live_stop_parser.set_defaults(func=cmd_live)
     live_logs_parser = live_subparsers.add_parser("logs", help="Show Spark Live logs")
-    live_logs_parser.add_argument("-n", "--lines", type=int, default=80)
+    live_logs_parser.add_argument("-n", "--lines", type=int, default=80, help="Lines of history to show before tailing (default: 80, 0 = all)")
     live_logs_parser.add_argument("-f", "--follow", action="store_true", help="Keep watching combined Spark Live logs")
     live_logs_parser.set_defaults(func=cmd_live)
     live_verify_parser = live_subparsers.add_parser("verify", help="Run the hosted Spark Live release gate")
@@ -14763,9 +21515,16 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_profile_parser.add_argument("state", choices=["on", "off"], help="Whether this profile should start with Spark Live")
     autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
     autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
+    autostart_status_parser.add_argument("--json", action="store_true", help="Emit status as structured JSON")
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
-
+    _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
+    guide_parser.add_argument(
+        "topic",
+        nargs="?",
+        choices=["install", "setup", "telegram", "providers", "voice", "security", "update"],
+        help="Optional guide lane; the selected topic is reported while the complete guide remains available",
+    )
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
     guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
     guide_parser.set_defaults(func=cmd_guide)
@@ -14780,6 +21539,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
     search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
+    search_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
@@ -14787,6 +21547,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
+    config_get_parser.add_argument("--json", action="store_true", help="Emit the value as structured JSON")
     config_get_parser.set_defaults(func=cmd_config_get)
 
     config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
@@ -14800,30 +21561,51 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
     config_list_parser.set_defaults(func=cmd_config_list)
+    _wrap_subgroup_help(config_parser, ["get", "set", "unset", "list"])
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
     secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
+    secrets_list_parser.add_argument("--json", action="store_true", help="Emit secret metadata as JSON")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
-    secrets_set_parser.add_argument("secret_id")
-    secrets_set_parser.add_argument("--value", help="Pass the value directly (otherwise prompted or read from stdin)")
-    secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
+    secrets_set_parser.add_argument("secret_id", help=SECRET_ID_SET_HELP)
+    secrets_set_input = secrets_set_parser.add_mutually_exclusive_group()
+    secrets_set_input.add_argument(
+        "--value",
+        help=(
+            "omit --value to paste securely when prompted; advanced input supports @clipboard, @env:NAME, or "
+            "@file:path (in PowerShell, quote '@clipboard')"
+        ),
+    )
+    secrets_set_input.add_argument(
+        "--generate",
+        action="store_true",
+        help="generate a new strong random value without placing it in argv or terminal output",
+    )
+    secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain", help=SECRET_BACKEND_HELP)
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
-    secrets_get_parser.add_argument("secret_id")
-    secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
+    secrets_get_parser.add_argument("secret_id", help=SECRET_ID_GET_HELP)
+    secrets_get_output = secrets_get_parser.add_mutually_exclusive_group()
+    secrets_get_output.add_argument("--reveal", action="store_true", help="Print the full value")
+    secrets_get_output.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit value-free secret presence as structured JSON",
+    )
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
-    secrets_delete_parser.add_argument("secret_id")
+    secrets_delete_parser.add_argument("secret_id", help=SECRET_ID_DELETE_HELP)
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
+    _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
     logs_parser = subparsers.add_parser("logs", help="Show process logs for an installed module")
-    logs_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile logs to read")
+    logs_parser.add_argument("--profile", default=None, help="Named Telegram bot profile logs to read")
     logs_parser.add_argument("target")
     logs_parser.add_argument("-n", "--lines", type=int, default=200, help="Lines of history to show before following (default: 200, 0 = all)")
     logs_parser.add_argument("-f", "--follow", action="store_true", help="Tail the log and stream new lines")

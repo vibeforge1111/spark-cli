@@ -9,7 +9,7 @@ import subprocess
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import tomllib
 
@@ -28,7 +28,6 @@ OPERATING_COCKPIT_SCHEMA = "spark.operating_cockpit.compiled.v0"
 DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
-
 CONTRACT_FILE_HINTS = (
     "docs/AGENT_OPERATING_CONTEXT_AND_DRIFT_CONTROL.md",
     "docs/SPARK_UPGRADE_LEDGER.yaml",
@@ -98,6 +97,8 @@ OWNER_SURFACES = {
     "spark-swarm": "specialization paths and publication governance",
     "spark-skill-graphs": "specialist library and routing substrate",
     "spark-intelligence-systems": "doctrine, runbook, prototype read model",
+    "spark-character": "persona, voice consistency, scoring, and opt-in character evolution runtime",
+    "spark-researcher": "research, advisory, memory packet, and bounded domain-chip authoring runtime",
 }
 
 CORE_REPOS = set(OWNER_SURFACES)
@@ -294,6 +295,20 @@ RAW_MEMORY_KEY_HINTS = (
 )
 
 
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_identifier(name: str) -> bool:
+    """Return True if *name* is a safe SQL identifier (alphanumeric/underscore, starts with letter or underscore)."""
+    return bool(_SAFE_IDENTIFIER_RE.match(name))
+
+
+def _sanitize_identifiers(names: list[str]) -> list[str]:
+    """Filter *names* to only include safe SQL identifiers, preventing injection via malicious schema metadata."""
+    return [n for n in names if _validate_identifier(n)]
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -303,7 +318,7 @@ def read_json(path: Path) -> tuple[Any | None, str | None]:
         return None, "missing"
     try:
         return json.loads(path.read_text(encoding="utf-8-sig")), None
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError) as exc:
         return None, f"read_json_failed: {type(exc).__name__}: {exc}"
 
 
@@ -312,12 +327,16 @@ def read_toml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, "missing"
     try:
         return tomllib.loads(path.read_text(encoding="utf-8")), None
-    except Exception as exc:
+    except (tomllib.TOMLDecodeError, OSError) as exc:
         return None, f"read_toml_failed: {type(exc).__name__}: {exc}"
 
 
 def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
 
 
 def as_dict(value: Any) -> dict[str, Any]:
@@ -396,7 +415,11 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
 def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
-        for child in desktop.iterdir():
+        try:
+            children = list(desktop.iterdir())
+        except OSError:
+            children = []
+        for child in children:
             if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
 
@@ -419,8 +442,8 @@ def git_summary(path: Path) -> dict[str, Any]:
             timeout=2,
             check=False,
         )
-    except Exception:
-        return {"available": True, "head_short": None}
+    except (subprocess.SubprocessError, OSError):
+        return {"available": False, "head_short": None}
     return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
 
@@ -433,7 +456,7 @@ def run_git(path: Path, args: list[str], timeout: int = 3) -> tuple[int, str]:
             timeout=timeout,
             check=False,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return 1, ""
     return result.returncode, result.stdout.strip()
 
@@ -578,6 +601,13 @@ def repo_ids(repo: dict[str, Any]) -> set[str]:
     return {module_name.strip()} if isinstance(module_name, str) and module_name.strip() else set()
 
 
+def repo_board_identity(repo: dict[str, Any], ids: set[str]) -> str:
+    name = str(repo.get("name") or "")
+    if name == "source" and len(ids) == 1:
+        return next(iter(ids))
+    return name
+
+
 def summarize_installed(installed: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(installed, dict):
         return {}
@@ -597,6 +627,8 @@ def summarize_installed(installed: dict[str, Any] | None) -> dict[str, Any]:
             "bundle_provenance": item.get("bundle_provenance"),
             "registry_source": item.get("registry_source"),
             "registry_commit": item.get("registry_commit"),
+            "runtime_classification": item.get("runtime_classification"),
+            "runtime_classification_reason": item.get("runtime_classification_reason"),
             "last_install_status": as_dict(item.get("last_install")).get("status"),
             "last_update_status": as_dict(item.get("last_update")).get("status"),
         }
@@ -648,7 +680,7 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
                 out["tables_of_interest"][table] = {"exists": True, "row_count": int(count)}
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -869,7 +901,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         continue
                     try:
                         payload = json.loads(line)
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
                     if not isinstance(payload, dict):
                         continue
@@ -884,7 +916,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         derived_trace_refs.add(f"trace:spawner-prd:{clean_mission_id}")
                     if isinstance(trace_ref, str) and trace_ref.strip():
                         trace_refs.add(trace_ref.strip())
-        except Exception as exc:
+        except OSError as exc:
             out["join_error"] = f"{type(exc).__name__}: {exc}"
     effective_trace_refs = set(trace_refs)
     effective_trace_refs.update(derived_trace_refs)
@@ -904,15 +936,20 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
     return out
 
 
+_BUILDER_OVERLAP_PROBE_CAP = 500
+
+
 def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
         "checked_request_id_count": len(request_ids),
+        "probe_cap": _BUILDER_OVERLAP_PROBE_CAP,
         "redaction": "overlap counts only; request id values omitted",
     }
     if not request_ids or not db_path.exists():
+        out["sampled_request_id_count"] = 0
         out["matched_builder_request_id_count"] = 0
         return out
     try:
@@ -921,14 +958,17 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
             if "builder_events" not in tables:
                 out["table_exists"] = False
+                out["sampled_request_id_count"] = 0
                 out["matched_builder_request_id_count"] = 0
                 return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "request_id" not in columns:
                 out["request_id_column_exists"] = False
+                out["sampled_request_id_count"] = 0
                 out["matched_builder_request_id_count"] = 0
                 return out
-            candidates = sorted(request_ids)[:500]
+            candidates = sorted(request_ids)[:_BUILDER_OVERLAP_PROBE_CAP]
+            out["sampled_request_id_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -941,7 +981,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             out["matched_builder_request_id_count"] = int(matched or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -952,9 +992,11 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
         "source": "builder_events",
         "exists": db_path.exists(),
         "checked_trace_ref_count": len(trace_refs),
+        "probe_cap": _BUILDER_OVERLAP_PROBE_CAP,
         "redaction": "overlap counts only; trace ref values omitted",
     }
     if not trace_refs or not db_path.exists():
+        out["sampled_trace_ref_count"] = 0
         out["matched_builder_trace_ref_count"] = 0
         return out
     try:
@@ -963,14 +1005,17 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
             if "builder_events" not in tables:
                 out["table_exists"] = False
+                out["sampled_trace_ref_count"] = 0
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
+                out["sampled_trace_ref_count"] = 0
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            candidates = sorted(trace_refs)[:500]
+            candidates = sorted(trace_refs)[:_BUILDER_OVERLAP_PROBE_CAP]
+            out["sampled_trace_ref_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -983,8 +1028,51 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             out["matched_builder_trace_ref_count"] = int(matched or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def builder_overlap_sets(builder_home: Path, *, request_ids: set[str], trace_refs: set[str]) -> dict[str, set[str]]:
+    db_path = builder_home / "state.db"
+    out: dict[str, set[str]] = {"request_ids": set(), "trace_refs": set()}
+    if not db_path.exists() or (not request_ids and not trace_refs):
+        return out
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+            if "builder_events" not in tables:
+                return out
+            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            if request_ids and "request_id" in columns:
+                candidates = sorted(request_ids)[:500]
+                placeholders = ",".join("?" for _ in candidates)
+                rows = conn.execute(
+                    f"""
+                    select distinct request_id
+                    from builder_events
+                    where request_id in ({placeholders})
+                    """,
+                    candidates,
+                ).fetchall()
+                out["request_ids"] = {str(row[0]) for row in rows if str(row[0] or "").strip()}
+            if trace_refs and "trace_ref" in columns:
+                candidates = sorted(trace_refs)[:500]
+                placeholders = ",".join("?" for _ in candidates)
+                rows = conn.execute(
+                    f"""
+                    select distinct trace_ref
+                    from builder_events
+                    where trace_ref in ({placeholders})
+                    """,
+                    candidates,
+                ).fetchall()
+                out["trace_refs"] = {str(row[0]) for row in rows if str(row[0] or "").strip()}
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return out
     return out
 
 
@@ -1154,6 +1242,22 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
+    candidate_request_ids = {
+        str(group.get("request_id")).strip()
+        for group in groups.values()
+        if isinstance(group.get("request_id"), str) and str(group.get("request_id")).strip()
+    }
+    candidate_trace_refs = {
+        str(group.get("trace_ref")).strip()
+        for group in groups.values()
+        if isinstance(group.get("trace_ref"), str) and str(group.get("trace_ref")).strip()
+    }
+    builder_join_sets = builder_overlap_sets(
+        builder_home,
+        request_ids=candidate_request_ids,
+        trace_refs=candidate_trace_refs,
+    )
+
     candidates: list[dict[str, Any]] = []
     for raw_key, group in groups.items():
         event_counts = Counter(group.get("event_counts") or {})
@@ -1188,19 +1292,9 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
                 "reason_code": "authority_verdict_missing",
             }
 
-        builder_request_join = (
-            inspect_builder_request_id_overlap(builder_home, {raw_request_id})
-            if isinstance(raw_request_id, str) and raw_request_id
-            else {"matched_builder_request_id_count": 0}
-        )
-        builder_trace_join = (
-            inspect_builder_trace_ref_overlap(builder_home, {raw_trace_ref})
-            if isinstance(raw_trace_ref, str) and raw_trace_ref
-            else {"matched_builder_trace_ref_count": 0}
-        )
         builder_join_present = bool(
-            int(as_dict(builder_request_join).get("matched_builder_request_id_count") or 0)
-            or int(as_dict(builder_trace_join).get("matched_builder_trace_ref_count") or 0)
+            (isinstance(raw_request_id, str) and raw_request_id in builder_join_sets["request_ids"])
+            or (isinstance(raw_trace_ref, str) and raw_trace_ref in builder_join_sets["trace_refs"])
         )
         blockers = []
         if authority.get("verdict") != "allowed":
@@ -1384,7 +1478,7 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
         return out
     try:
         stat = path.stat()
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
     out["size_bytes"] = int(stat.st_size)
@@ -1394,8 +1488,31 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
     return out
 
 
+SAFE_SHORT_SECRET_KEY = (
+    r"(?:api[_ -]?key|token|secret|password|passwd|passphrase|private[_ -]?key|credential|"
+    r"auth[_ -]?code|access[_ -]?key)"
+)
+SAFE_SHORT_JSON_SECRET_RE = re.compile(
+    rf"(?i)([\"']{SAFE_SHORT_SECRET_KEY}[\"']\s*:\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;}}]+)"
+)
+SAFE_SHORT_NAMED_SECRET_RE = re.compile(
+    rf"(?i)(\b{SAFE_SHORT_SECRET_KEY}\b(?:\s*(?:=|:)\s*|\s+))(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;}}]+)"
+)
+
+
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = value.strip()
+    cleaned = SAFE_SHORT_JSON_SECRET_RE.sub(r"\1[redacted]", cleaned)
+    cleaned = SAFE_SHORT_NAMED_SECRET_RE.sub(r"\1[redacted]", cleaned)
+    # Redact on the full string BEFORE truncating, so a secret is never split
+    # across the truncation boundary (which would leak a fragment).
+    cleaned = re.sub(
+        r"(?i)(api[_-]?key|token|secret|password|passwd|credential|private[_-]?key|auth)"
+        r"([=:\s]+)(\S+)",
+        r"\1\2[redacted]",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?i)(Bearer|Basic)\s+\S+", r"\1 [redacted]", cleaned)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
@@ -1413,6 +1530,43 @@ def sensitive_identifier(value: str) -> bool:
 def redacted_identifier(column: str, value: str) -> str:
     digest = hashlib.sha256(value.encode("utf-8", errors="ignore")).hexdigest()[:12]
     return f"{column}:redacted:{digest}"
+
+
+def redacted_path_projection(path: Path, root: Path | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "path_ref": redacted_identifier("path", str(path)),
+    }
+    if root is not None:
+        try:
+            payload["relative_path"] = path.relative_to(root).as_posix()
+        except ValueError:
+            payload["relative_path"] = path.name
+    else:
+        payload["relative_path"] = path.name
+    return payload
+
+
+RAW_PATH_TEXT_PATTERN = re.compile(r"(/Users/\S+|/var/folders/\S+|file://\S+|[A-Za-z]:[\\/]\S+)")
+
+
+def redact_trace_index_projection(value: Any) -> Any:
+    if isinstance(value, list):
+        return [redact_trace_index_projection(item) for item in value]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text == "path" and isinstance(item, str):
+                out["path_ref"] = redacted_identifier("path", item)
+                continue
+            if key_text in {"reason_code", "reasonCode"} and item not in (None, ""):
+                out[key_text] = redacted_identifier("reason_code", str(item))
+                continue
+            out[key_text] = redact_trace_index_projection(item)
+        return out
+    if isinstance(value, str):
+        return RAW_PATH_TEXT_PATTERN.sub(lambda match: redacted_identifier("path", match.group(0)), value)
+    return value
 
 
 def safe_builder_event_value(column: str, value: Any) -> Any:
@@ -1459,11 +1613,25 @@ def count_raw_memory_hint_keys(value: Any) -> int:
     return 0
 
 
+def redact_memory_index_paths(value: Any, builder_home: Path) -> Any:
+    if isinstance(value, list):
+        return [redact_memory_index_paths(item, builder_home) for item in value]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "path" and isinstance(item, str):
+                out.update(redacted_path_projection(Path(item), builder_home))
+                continue
+            out[key] = redact_memory_index_paths(item, builder_home)
+        return out
+    return value
+
+
 def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
     path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
     data, error = read_json(path)
     out: dict[str, Any] = {
-        "path": str(path),
+        **redacted_path_projection(path, builder_home),
         "exists": path.exists(),
         "redaction": "allowlisted status fields only; rows, raw memory text, and evidence bodies omitted",
     }
@@ -1510,7 +1678,7 @@ def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
             if file_count >= max_files:
                 out["max_files_reached"] = True
                 break
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -1540,7 +1708,7 @@ def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
             if len(names) >= max_files:
                 out["max_files_reached"] = True
                 break
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -2006,6 +2174,7 @@ def capability_trust_fields(
 def build_capability_cards(
     creator_system_surfaces: list[dict[str, Any]],
     specialization_path_surfaces: list[dict[str, Any]],
+    module_capabilities: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
 
@@ -2174,6 +2343,55 @@ def build_capability_cards(
             }
         )
 
+    covered = {card.get("owner_repo") for card in cards}
+    for mc in as_list(module_capabilities):
+        repo = str(mc.get("module_name") or mc.get("repo") or "unknown")
+        if repo in covered:
+            continue
+        caps = as_list(mc.get("capabilities"))
+        cards.append({
+            "schema_version": CAPABILITY_CARD_SCHEMA,
+            "id": f"module:{repo}",
+            "name": f"{repo} module capabilities",
+            "owner_repo": repo,
+            "surface_type": "module",
+            "status": "seen",
+            "trust_status": "untrusted",
+            "proof_state": "proof_incomplete",
+            "trust_scope": "none",
+            "trust_basis": [],
+            "compiled_proofs": {"capabilities_declared": len(caps) > 0},
+            "proof_verdicts": {},
+            "proof_summary": {
+                "overall_status": "missing_required_verdicts",
+                "required_proofs": [],
+                "passed_proofs": [],
+                "blocked_proofs": [],
+                "unverified_proofs": [],
+                "missing_proofs": [],
+                "unsatisfied_proofs": [],
+                "status_counts": {},
+            },
+            "proof_blockers": [],
+            "missing_proofs": [],
+            "trust_rule": "Schema, manifest, conformance, or local artifact presence never makes a capability trusted.",
+            "plane": mc.get("plane"),
+            "capabilities": caps,
+            "requested_authority": ["local_files_read"],
+            "memory_policy": "non_authoritative_evidence_only",
+            "evidence_summary": {"capabilities_count": len(caps)},
+            "benchmark_summary": {},
+            "review_summary": {},
+            "trace_refs": [],
+            "rollback_refs": [],
+            "privacy_boundary": "Module capabilities are declared in spark.toml only; no proof surfaces are present.",
+            "public_boundary": "Network publication requires explicit approval and proof gates.",
+            "blockers": [
+                "No creator-system or specialization-path surface found for this module.",
+                "Capability remains untrusted until required proof domains pass.",
+            ],
+            "next_action": "Add a creator-system surface to enable proof verification for this module.",
+        })
     return cards
 
 
@@ -2226,7 +2444,7 @@ def summarize_memory_run_artifacts(builder_home: Path) -> dict[str, Any]:
                     else None
                 ),
             }
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2356,15 +2574,20 @@ def build_memory_review_queue(memory_index: dict[str, Any]) -> dict[str, Any]:
     export_status = str(status.get("status") or "missing")
     row_count = int(status.get("row_count") or 0)
     if export_status != "supported":
+        is_missing = export_status in {"missing", ""}
         items.append(
             memory_review_item(
                 item_id="memory-export-not-supported",
-                severity="critical",
+                severity="warning" if is_missing else "critical",
                 category="movement_export",
                 owner_repo="spark-intelligence-builder",
                 source_surface="Builder memory movement export",
                 reason_code="memory_movement_export_not_supported",
-                recommended_action="Restore Builder's metadata-only memory movement status export before Cockpit review.",
+                recommended_action=(
+                    "Configure Builder's metadata-only memory movement status export to enable Cockpit memory review."
+                    if is_missing
+                    else "Restore Builder's metadata-only memory movement status export before Cockpit review."
+                ),
                 count=1,
                 target_kind="status_export",
                 target_ref="memory-movement-status",
@@ -2566,7 +2789,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
         conn.row_factory = sqlite3.Row
         try:
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
-            memory_tables = [table for table in tables if "memory" in table.lower()]
+            memory_tables = _sanitize_identifiers([table for table in tables if "memory" in table.lower()])
             out["table_count"] = len(memory_tables)
             out["tables"] = {}
             for table in memory_tables:
@@ -2576,7 +2799,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
                 out["memory_lane_trace_join"] = inspect_memory_lane_trace_join(conn)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2586,7 +2809,7 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
         "source": "memory_lane_records",
         "redaction": "aggregate trace coverage only; row ids, trace ids, evidence JSON, memory bodies, and source refs omitted",
     }
-    columns = [row[1] for row in conn.execute("pragma table_info(memory_lane_records)")]
+    columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(memory_lane_records)")])
     required = {"request_id", "trace_ref", "artifact_lane", "status"}
     missing = sorted(required - set(columns))
     if missing:
@@ -2650,6 +2873,46 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
     return out
 
 
+def build_memory_movement_trace_continuity(memory_index: dict[str, Any]) -> dict[str, Any]:
+    safe_status = as_dict(memory_index.get("safe_status_export"))
+    status = as_dict(safe_status.get("status"))
+    builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
+    trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
+    seed_payload = {
+        "schema_version": MEMORY_MOVEMENT_INDEX_SCHEMA,
+        "source": "spark-cli.system_map.build_memory_movement_index",
+        "status_export_exists": bool(safe_status.get("exists")),
+        "status": status.get("status"),
+        "row_count": status.get("row_count"),
+        "movement_counts": status.get("movement_counts"),
+        "trace_join_status": trace_join.get("status"),
+        "trace_join_row_count": trace_join.get("row_count"),
+        "trace_ref_present_count": trace_join.get("trace_ref_present_count"),
+        "request_id_present_count": trace_join.get("request_id_present_count"),
+    }
+    seed = json.dumps(seed_payload, sort_keys=True, separators=(",", ":"), default=str)
+    request_ref = redacted_identifier("request_ref", f"memory-movement-request:{seed}")
+    trace_ref = redacted_identifier("trace_ref", f"memory-movement-trace:{seed}")
+    return {
+        "schema_version": "spark.memory_movement_trace_continuity.v1",
+        "source": "spark-cli.system_map.build_memory_movement_index",
+        "authority": "observability_non_authoritative",
+        "request_ref": request_ref,
+        "trace_ref": trace_ref,
+        "claim_boundary": (
+            "These refs identify the redacted Spark OS memory-movement compile artifact only. "
+            "They do not authorize memory writes, memory promotion, cleanup, execution, or user-profile truth."
+        ),
+        "source_export_present": bool(safe_status.get("exists")),
+        "builder_memory_table_trace_join_status": trace_join.get("status") or "unknown",
+        "builder_memory_lane_request_id_present_count": int(trace_join.get("request_id_present_count") or 0),
+        "builder_memory_lane_trace_ref_present_count": int(trace_join.get("trace_ref_present_count") or 0),
+        "builder_memory_lane_missing_trace_ref_count": int(trace_join.get("missing_trace_ref_count") or 0),
+        "raw_memory_exported": False,
+        "proof_status": "not_execution_proof",
+    }
+
+
 def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
@@ -2677,14 +2940,26 @@ def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
                     f'select "{column}" as value, count(*) as n from builder_events group by "{column}" order by n desc limit 40'
                 ).fetchall()
                 out[f"{column}_counts"] = {str(row["value"]): int(row["n"]) for row in rows}
-            for column in ("trace_ref", "request_id", "correlation_id", "parent_event_id"):
-                missing = conn.execute(
-                    f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
-                ).fetchone()[0]
-                out[f"missing_{column}_count"] = int(missing)
+            missing_row = conn.execute(
+                """
+                select
+                  sum(case when trace_ref is null or trim(trace_ref) = '' then 1 else 0 end) as missing_trace_ref_count,
+                  sum(case when request_id is null or trim(request_id) = '' then 1 else 0 end) as missing_request_id_count,
+                  sum(case when correlation_id is null or trim(correlation_id) = '' then 1 else 0 end) as missing_correlation_id_count,
+                  sum(case when parent_event_id is null or trim(parent_event_id) = '' then 1 else 0 end) as missing_parent_event_id_count
+                from builder_events
+                """
+            ).fetchone()
+            for key in (
+                "missing_trace_ref_count",
+                "missing_request_id_count",
+                "missing_correlation_id_count",
+                "missing_parent_event_id_count",
+            ):
+                out[key] = int(missing_row[key] or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2710,7 +2985,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             selected = [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
             if not selected:
                 out["events"] = []
@@ -2734,15 +3009,16 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 events.append(event)
             out["events"] = events
             out["sample_count"] = len(events)
-            out["top_trace_refs"] = [
+            top_pairs = [
                 {"trace_ref": trace_ref, "event_count": count}
-                for trace_ref, count in trace_counts.most_common(20)
+                for trace_ref, count in trace_counts.most_common()
                 if trace_ref != "[missing]"
             ]
+            out["top_trace_refs"] = top_pairs[:20]
             out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2790,7 +3066,7 @@ def inspect_builder_trace_groups(
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
                 return out
@@ -2811,42 +3087,174 @@ def inspect_builder_trace_groups(
                 """,
                 (max(0, min(int(group_limit), 50)),),
             ).fetchall()
-            quoted = ", ".join(f'"{column}"' for column in selected)
+            trace_refs = [str(row["trace_ref"] or "") for row in group_rows if str(row["trace_ref"] or "").strip()]
+            event_rows_by_trace = batched_builder_trace_event_rows(
+                conn,
+                selected,
+                trace_refs=trace_refs,
+                events_per_trace=events_per_trace,
+            )
+            topology_by_trace = batched_builder_trace_topology(
+                conn,
+                columns,
+                trace_refs=trace_refs,
+                event_counts={str(row["trace_ref"] or ""): int(row["event_count"] or 0) for row in group_rows},
+                edge_sample_limit=edge_sample_limit,
+            )
             groups = []
             for group_row in group_rows:
                 trace_ref = str(group_row["trace_ref"] or "")
-                event_rows = conn.execute(
-                    f"""
-                    select {quoted}
-                    from builder_events
-                    where trace_ref = ?
-                    order by created_at asc
-                    limit ?
-                    """,
-                    (trace_ref, max(0, min(int(events_per_trace), 50))),
-                ).fetchall()
                 groups.append(
                     {
                         "trace_ref": safe_builder_event_value("trace_ref", trace_ref),
                         "event_count": int(group_row["event_count"] or 0),
                         "first_seen_at": group_row["first_seen_at"],
                         "last_seen_at": group_row["last_seen_at"],
-                        "topology": builder_trace_topology(
-                            conn,
-                            columns,
-                            trace_ref=trace_ref,
-                            event_count=int(group_row["event_count"] or 0),
-                            edge_sample_limit=edge_sample_limit,
-                        ),
-                        "events": [sanitize_builder_event_row(row, selected) for row in event_rows],
+                        "topology": topology_by_trace.get(trace_ref)
+                        or builder_trace_topology_unavailable(columns, int(group_row["event_count"] or 0)),
+                        "events": [
+                            sanitize_builder_event_row(row, selected)
+                            for row in event_rows_by_trace.get(trace_ref, [])
+                        ],
                     }
                 )
             out["groups"] = groups
             out["group_count"] = len(groups)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def _trace_ref_placeholders(trace_refs: list[str]) -> str:
+    return ", ".join("?" for _ in trace_refs)
+
+
+def batched_builder_trace_event_rows(
+    conn: sqlite3.Connection,
+    selected: list[str],
+    *,
+    trace_refs: list[str],
+    events_per_trace: int,
+) -> dict[str, list[sqlite3.Row]]:
+    if not trace_refs:
+        return {}
+    quoted = ", ".join(f'"{column}"' for column in selected)
+    placeholders = _trace_ref_placeholders(trace_refs)
+    per_trace_limit = max(0, min(int(events_per_trace), 50))
+    rows = conn.execute(
+        f"""
+        with ranked as (
+            select {quoted},
+                   row_number() over (partition by trace_ref order by created_at asc) as trace_row_num
+            from builder_events
+            where trace_ref in ({placeholders})
+        )
+        select {quoted}
+        from ranked
+        where trace_row_num <= ?
+        order by trace_ref asc, created_at asc
+        """,
+        (*trace_refs, per_trace_limit),
+    ).fetchall()
+    out: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        out[str(row["trace_ref"] or "")].append(row)
+    return out
+
+
+def builder_trace_topology_unavailable(columns: list[str], event_count: int) -> dict[str, Any]:
+    if not {"event_id", "parent_event_id"}.issubset(columns):
+        return {"available": False, "reason": "event_id_or_parent_event_id_missing"}
+    return {
+        "available": True,
+        "event_count": int(event_count or 0),
+        "root_event_count": 0,
+        "parent_link_count": 0,
+        "orphan_parent_event_count": 0,
+        "edge_sample_count": 0,
+        "edge_sample": [],
+        "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
+    }
+
+
+def batched_builder_trace_topology(
+    conn: sqlite3.Connection,
+    columns: list[str],
+    *,
+    trace_refs: list[str],
+    event_counts: dict[str, int],
+    edge_sample_limit: int,
+) -> dict[str, dict[str, Any]]:
+    if not trace_refs:
+        return {}
+    if not {"event_id", "parent_event_id"}.issubset(columns):
+        return {
+            trace_ref: builder_trace_topology_unavailable(columns, event_counts.get(trace_ref, 0))
+            for trace_ref in trace_refs
+        }
+    placeholders = _trace_ref_placeholders(trace_refs)
+    topology_rows = conn.execute(
+        f"""
+        select child.trace_ref as trace_ref,
+               child.event_id as child_event_id,
+               child.parent_event_id as parent_event_id,
+               child.event_type as child_event_type,
+               child.component as child_component,
+               parent.event_type as parent_event_type,
+               case when parent.event_id is null then 0 else 1 end as parent_exists,
+               case when parent.event_id is not null and parent.trace_ref = child.trace_ref then 1 else 0 end as parent_in_same_trace,
+               child.created_at as created_at
+        from builder_events child
+        left join builder_events parent on parent.event_id = child.parent_event_id
+        where child.trace_ref in ({placeholders})
+        order by child.trace_ref asc, child.created_at asc
+        """,
+        tuple(trace_refs),
+    ).fetchall()
+    parent_link_counts: Counter[str] = Counter()
+    root_counts: Counter[str] = Counter()
+    orphan_counts: Counter[str] = Counter()
+    edge_rows_by_trace: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    edge_limit = max(0, min(int(edge_sample_limit), 50))
+    seen_trace_rows: Counter[str] = Counter()
+    for row in topology_rows:
+        trace_ref = str(row["trace_ref"] or "")
+        seen_trace_rows[trace_ref] += 1
+        parent_event_id = str(row["parent_event_id"] or "").strip()
+        if parent_event_id:
+            parent_link_counts[trace_ref] += 1
+            if not bool(row["parent_exists"]):
+                orphan_counts[trace_ref] += 1
+            if len(edge_rows_by_trace[trace_ref]) < edge_limit:
+                edge_rows_by_trace[trace_ref].append(row)
+        else:
+            root_counts[trace_ref] += 1
+    out: dict[str, dict[str, Any]] = {}
+    for trace_ref in trace_refs:
+        edge_rows = edge_rows_by_trace.get(trace_ref, [])
+        out[trace_ref] = {
+            "available": True,
+            "event_count": int(event_counts.get(trace_ref, 0) or 0),
+            "root_event_count": int(root_counts.get(trace_ref, 0)),
+            "parent_link_count": int(parent_link_counts.get(trace_ref, 0)),
+            "orphan_parent_event_count": int(orphan_counts.get(trace_ref, 0)),
+            "edge_sample_count": len(edge_rows),
+            "edge_sample": [
+                {
+                    "parent_event_id": safe_builder_event_value("parent_event_id", row["parent_event_id"]),
+                    "child_event_id": safe_builder_event_value("event_id", row["child_event_id"]),
+                    "parent_event_type": safe_builder_event_value("event_type", row["parent_event_type"]),
+                    "child_event_type": safe_builder_event_value("event_type", row["child_event_type"]),
+                    "child_component": safe_builder_event_value("component", row["child_component"]),
+                    "parent_exists": bool(row["parent_exists"]),
+                    "parent_in_same_trace": bool(row["parent_in_same_trace"]),
+                }
+                for row in edge_rows
+            ],
+            "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
+        }
     return out
 
 
@@ -2959,7 +3367,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             group_columns = [
                 column
                 for column in (
@@ -2975,12 +3383,19 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
             ]
             total = int(conn.execute("select count(*) from builder_events").fetchone()[0])
             out["row_count"] = total
-            for column in ("trace_ref", "request_id", "parent_event_id"):
-                if column in columns:
-                    missing = conn.execute(
-                        f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
-                    ).fetchone()[0]
-                    out[f"missing_{column}_count"] = int(missing)
+            missing_selects = [
+                f"sum(case when \"{column}\" is null or trim(\"{column}\") = '' then 1 else 0 end) as missing_{column}_count"
+                for column in ("trace_ref", "request_id", "parent_event_id")
+                if column in columns
+            ]
+            if missing_selects:
+                missing_row = conn.execute(f"select {', '.join(missing_selects)} from builder_events").fetchone()
+                missing_index = 0
+                for column in ("trace_ref", "request_id", "parent_event_id"):
+                    key = f"missing_{column}_count"
+                    if column in columns:
+                        out[key] = int(missing_row[missing_index] or 0)
+                        missing_index += 1
             if "trace_ref" in columns:
                 trace_group_count = conn.execute(
                     "select count(distinct trace_ref) from builder_events where trace_ref is not null and trim(trace_ref) != ''"
@@ -2989,43 +3404,16 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 if "created_at" in columns:
                     out["recent_windows"] = _builder_trace_recent_windows(conn)
                 if group_columns:
-                    expressions = [
-                        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
-                        for column in group_columns
-                    ]
-                    group_by = ", ".join(f'"{column}"' for column in group_columns)
-                    rows = conn.execute(
-                        f"""
-                        select {", ".join(expressions)}, count(*) as event_count
-                        from builder_events
-                        where trace_ref is null or trim(trace_ref) = ''
-                        group by {group_by}
-                        order by event_count desc
-                        limit 30
-                        """
-                    ).fetchall()
-                    row_items = []
-                    for row in rows:
-                        values = {
-                            column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
-                        }
-                        row_items.append(
-                            {
-                                **values,
-                                "event_count": int(row[len(group_columns)] or 0),
-                                **builder_trace_missing_source_state(
-                                    conn,
-                                    group_columns=group_columns,
-                                    values=values,
-                                    columns=columns,
-                                ),
-                            }
-                        )
                     out["missing_trace_ref_sources"] = {
                         "group_by": group_columns,
                         "limit": 30,
                         "redaction": "aggregate counts grouped by allowlisted event metadata only",
-                        "rows": row_items,
+                        "rows": builder_missing_trace_ref_source_rows(
+                            conn,
+                            group_columns=group_columns,
+                            columns=columns,
+                            limit=30,
+                        ),
                     }
             if {"severity", "status"}.issubset(columns):
                 high_open = conn.execute(
@@ -3070,6 +3458,17 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                                 ),
                             }
                         )
+                    unresolved_rows = [
+                        row
+                        for row in row_items
+                        if str(row.get("latest_lifecycle_state") or "") != "latest_resolved"
+                    ]
+                    out["unresolved_high_severity_open_count"] = sum(
+                        int(row.get("event_count") or 0) for row in unresolved_rows
+                    )
+                    out["current_unresolved_high_severity_open_count"] = sum(
+                        int(row.get("recent_24h_high_open_count") or 0) for row in unresolved_rows
+                    )
                     out["high_severity_open_sources"] = {
                         "group_by": group_columns,
                         "limit": 30,
@@ -3093,7 +3492,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                     for column in ("component", "event_type", "status", "severity", "target_surface", "evidence_lane")
                     if column in columns
                 ]
-                if orphan_columns:
+                if orphan_columns and int(orphaned or 0):
                     out["orphan_parent_event_sources"] = builder_trace_orphan_parent_sources(
                         conn,
                         orphan_columns,
@@ -3103,12 +3502,29 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 flags.append("missing_trace_refs")
             if int(out.get("orphan_parent_event_id_count") or 0):
                 flags.append("orphan_parent_event_ids")
-            if int(out.get("high_severity_open_count") or 0):
-                flags.append("open_high_severity_events")
+            unresolved_high_open = int(
+                out.get("unresolved_high_severity_open_count")
+                if "unresolved_high_severity_open_count" in out
+                else out.get("high_severity_open_count") or 0
+            )
+            if unresolved_high_open:
+                current_high_open = int(out.get("current_unresolved_high_severity_open_count") or 0)
+                if "current_unresolved_high_severity_open_count" not in out:
+                    recent_windows = [as_dict(row) for row in as_list(out.get("recent_windows"))]
+                    current_high_open = sum(
+                        int(row.get("high_severity_open_count") or 0)
+                        for row in recent_windows
+                        if str(row.get("window") or "") in {"1h", "24h"}
+                    )
+                flags.append(
+                    "open_high_severity_events"
+                    if current_high_open
+                    else "historical_open_high_severity_events"
+                )
             out["health_flags"] = flags
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -3154,30 +3570,182 @@ def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, An
     for label, delta in windows:
         threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         total = conn.execute(
-            "select count(*) from builder_events where created_at >= ?",
+            "select count(*) from builder_events where datetime(created_at) >= datetime(?)",
             (threshold,),
         ).fetchone()[0]
         missing = conn.execute(
             """
             select count(*)
             from builder_events
-            where created_at >= ?
+            where datetime(created_at) >= datetime(?)
               and (trace_ref is null or trim(trace_ref) = '')
+            """,
+            (threshold,),
+        ).fetchone()[0]
+        high_open = conn.execute(
+            """
+            select count(*)
+            from builder_events
+            where datetime(created_at) >= datetime(?)
+              and lower(coalesce(severity, '')) in ('high', 'critical')
+              and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
             """,
             (threshold,),
         ).fetchone()[0]
         total_count = int(total or 0)
         missing_count = int(missing or 0)
+        high_open_count = int(high_open or 0)
         rows.append(
             {
                 "window": label,
                 "threshold": threshold,
                 "row_count": total_count,
                 "missing_trace_ref_count": missing_count,
+                "high_severity_open_count": high_open_count,
                 "missing_trace_ref_ratio": round(missing_count / total_count, 4) if total_count else 0.0,
+                "high_severity_open_ratio": round(high_open_count / total_count, 4) if total_count else 0.0,
             }
         )
     return rows
+
+
+def builder_missing_trace_ref_source_rows(
+    conn: sqlite3.Connection,
+    *,
+    group_columns: list[str],
+    columns: list[str],
+    limit: int,
+) -> list[dict[str, Any]]:
+    expressions = [
+        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
+        for column in group_columns
+    ]
+    group_by = ", ".join(f'"{column}"' for column in group_columns)
+    if "created_at" not in columns:
+        rows = conn.execute(
+            f"""
+            select {", ".join(expressions)}, count(*) as event_count
+            from builder_events
+            where trace_ref is null or trim(trace_ref) = ''
+            group by {group_by}
+            order by event_count desc
+            limit ?
+            """,
+            (limit,),
+        ).fetchall()
+        row_items = []
+        for row in rows:
+            values = {column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)}
+            row_items.append(
+                {
+                    **values,
+                    "event_count": int(row[len(group_columns)] or 0),
+                    **builder_trace_missing_source_state(
+                        conn,
+                        group_columns=group_columns,
+                        values=values,
+                        columns=columns,
+                    ),
+                }
+            )
+        return row_items
+
+    now = datetime.now(timezone.utc)
+    one_hour = (now - timedelta(hours=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    one_day = (now - timedelta(hours=24)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    join_on = " and ".join(f'n."{column}" = mg."{column}"' for column in group_columns)
+    partition_by = ", ".join(f'n."{column}"' for column in group_columns)
+    select_group = ", ".join(f'mg."{column}"' for column in group_columns)
+    latest_group = ", ".join(f'r."{column}"' for column in group_columns)
+    agg_group = ", ".join(f'a."{column}"' for column in group_columns)
+    rows = conn.execute(
+        f"""
+        with normalized as (
+            select
+                rowid as source_rowid,
+                {", ".join(expressions)},
+                trace_ref,
+                request_id,
+                created_at,
+                case when trace_ref is null or trim(trace_ref) = '' then 1 else 0 end as missing_trace_ref
+            from builder_events
+        ),
+        missing_groups as (
+            select {group_by}, count(*) as event_count
+            from normalized
+            where missing_trace_ref = 1
+            group by {group_by}
+            order by event_count desc
+            limit ?
+        ),
+        ranked as (
+            select
+                n.*,
+                mg.event_count,
+                row_number() over (
+                    partition by {partition_by}
+                    order by datetime(n.created_at) desc, n.source_rowid desc
+                ) as rn
+            from normalized n
+            join missing_groups mg on {join_on}
+        ),
+        recent as (
+            select
+                {select_group},
+                sum(case when datetime(n.created_at) >= datetime(?) then 1 else 0 end) as recent_1h_row_count,
+                sum(case when datetime(n.created_at) >= datetime(?) and n.missing_trace_ref = 1 then 1 else 0 end) as recent_1h_missing_trace_ref_count,
+                sum(case when datetime(n.created_at) >= datetime(?) then 1 else 0 end) as recent_24h_row_count,
+                sum(case when datetime(n.created_at) >= datetime(?) and n.missing_trace_ref = 1 then 1 else 0 end) as recent_24h_missing_trace_ref_count
+            from normalized n
+            join missing_groups mg on {join_on}
+            group by {select_group}
+        )
+        select
+            {latest_group},
+            r.event_count,
+            r.trace_ref,
+            r.request_id,
+            r.created_at,
+            a.recent_1h_row_count,
+            a.recent_1h_missing_trace_ref_count,
+            a.recent_24h_row_count,
+            a.recent_24h_missing_trace_ref_count
+        from ranked r
+        join recent a on {" and ".join(f'r."{column}" = a."{column}"' for column in group_columns)}
+        where r.rn = 1
+        order by r.event_count desc
+        """,
+        (limit, one_hour, one_hour, one_day, one_day),
+    ).fetchall()
+    row_items = []
+    for row in rows:
+        values = {column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)}
+        latest_trace_ref = str(row[len(group_columns) + 1] or "").strip()
+        latest_request_id = str(row[len(group_columns) + 2] or "").strip()
+        item: dict[str, Any] = {
+            **values,
+            "event_count": int(row[len(group_columns)] or 0),
+            "latest_event_trace_state": "trace_ref_present" if latest_trace_ref else "missing_trace_ref",
+            "latest_event_trace_ref_present": bool(latest_trace_ref),
+            "latest_event_request_id_present": bool(latest_request_id),
+            "latest_event_created_at": str(row[len(group_columns) + 3] or ""),
+            "recent_1h_row_count": int(row[len(group_columns) + 4] or 0),
+            "recent_1h_missing_trace_ref_count": int(row[len(group_columns) + 5] or 0),
+            "recent_24h_row_count": int(row[len(group_columns) + 6] or 0),
+            "recent_24h_missing_trace_ref_count": int(row[len(group_columns) + 7] or 0),
+        }
+        latest_clean = bool(item.get("latest_event_trace_ref_present"))
+        recent_24h_missing = int(item.get("recent_24h_missing_trace_ref_count") or 0)
+        if latest_clean and recent_24h_missing:
+            item["repair_temporal_state"] = "latest_clean_historical_window_debt"
+        elif latest_clean:
+            item["repair_temporal_state"] = "latest_clean"
+        elif int(item.get("recent_24h_row_count") or 0) == 0:
+            item["repair_temporal_state"] = "stale_missing_trace_ref"
+        else:
+            item["repair_temporal_state"] = "latest_missing_trace_ref"
+        row_items.append(item)
+    return row_items
 
 
 def builder_trace_missing_source_state(
@@ -3191,13 +3759,13 @@ def builder_trace_missing_source_state(
         return {}
 
     where_sql, params = builder_trace_group_where(group_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
+    order_expr = "datetime(created_at)" if "created_at" in columns else "rowid"
     latest = conn.execute(
         f"""
         select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
         from builder_events
         where {where_sql}
-        order by "{order_column}" desc
+        order by {order_expr} desc
         limit 1
         """,
         params,
@@ -3225,7 +3793,7 @@ def builder_trace_missing_source_state(
                 f"""
                 select count(*)
                 from builder_events
-                where created_at >= ?
+                where datetime(created_at) >= datetime(?)
                   and {where_sql}
                 """,
                 count_params,
@@ -3234,7 +3802,7 @@ def builder_trace_missing_source_state(
                 f"""
                 select count(*)
                 from builder_events
-                where created_at >= ?
+                where datetime(created_at) >= datetime(?)
                   and {where_sql}
                   and (trace_ref is null or trim(trace_ref) = '')
                 """,
@@ -3286,13 +3854,13 @@ def builder_high_severity_source_state(
     if not identity_columns:
         identity_columns = [column for column in ("component", "event_type") if column in columns]
     where_sql, params = builder_trace_group_where(identity_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
+    order_expr = "datetime(created_at)" if "created_at" in columns else "rowid"
     latest = conn.execute(
         f"""
         select status, severity, trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
         from builder_events
         where {where_sql}
-        order by "{order_column}" desc
+        order by {order_expr} desc
         limit 1
         """,
         params,
@@ -3327,6 +3895,13 @@ def builder_high_severity_source_state(
         else:
             out["latest_lifecycle_state"] = "latest_unknown"
 
+    if out.get("latest_lifecycle_state") == "latest_resolved":
+        out["lifecycle_temporal_state"] = "latest_resolved"
+    elif out.get("latest_lifecycle_state") == "latest_open_high_severity":
+        out["lifecycle_temporal_state"] = "latest_open_high_severity"
+    else:
+        out["lifecycle_temporal_state"] = str(out.get("latest_lifecycle_state") or "unknown")
+
     if "created_at" in columns:
         now = datetime.now(timezone.utc)
         for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
@@ -3336,7 +3911,7 @@ def builder_high_severity_source_state(
                 f"""
                 select count(*)
                 from builder_events
-                where created_at >= ?
+                where datetime(created_at) >= datetime(?)
                   and {where_sql}
                 """,
                 count_params,
@@ -3345,7 +3920,7 @@ def builder_high_severity_source_state(
                 f"""
                 select count(*)
                 from builder_events
-                where created_at >= ?
+                where datetime(created_at) >= datetime(?)
                   and {where_sql}
                   and lower(coalesce(severity, '')) in ('high', 'critical')
                   and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
@@ -3354,18 +3929,6 @@ def builder_high_severity_source_state(
             ).fetchone()[0]
             out[f"recent_{label}_row_count"] = int(total or 0)
             out[f"recent_{label}_high_open_count"] = int(high_open or 0)
-
-    if (
-        out.get("latest_lifecycle_state") == "latest_open_high_severity"
-        and int(out.get("recent_24h_row_count") or 0) == 0
-    ):
-        out["lifecycle_temporal_state"] = "stale_open_high_severity"
-    elif out.get("latest_lifecycle_state") == "latest_resolved":
-        out["lifecycle_temporal_state"] = "latest_resolved"
-    elif out.get("latest_lifecycle_state") == "latest_open_high_severity":
-        out["lifecycle_temporal_state"] = "latest_open_high_severity"
-    else:
-        out["lifecycle_temporal_state"] = str(out.get("latest_lifecycle_state") or "unknown")
     return out
 
 
@@ -3491,7 +4054,9 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
         "contract_sources": contract_sources,
         "creator_system_surfaces": creator_system_surfaces,
         "specialization_path_surfaces": specialization_path_surfaces,
-        "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
+        "capability_cards": build_capability_cards(
+            creator_system_surfaces, specialization_path_surfaces, module_capabilities
+        ),
     }
 
 
@@ -3845,8 +4410,22 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
     }
 
 
-def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[str, Any]:
-    source_files = {
+def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
+    module_sources = spark_home / "modules" if spark_home is not None else None
+    spark_cli_package_root = Path(__file__).resolve().parent
+    spark_cli_repo_root = spark_cli_package_root.parent.parent
+    installed_suffixes: dict[str, tuple[str, Path]] = {
+        "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
+        "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
+        "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
+        "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
+        "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
+        "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
+        "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
+        "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
+        "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
+    }
+    desktop_files = {
         "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
         "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
         "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
@@ -3857,13 +4436,41 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[s
         "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
         "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
     }
+
+    def resolve_source_file(key: str) -> Path:
+        desktop_path = desktop_files[key]
+        if desktop_path.exists():
+            return desktop_path
+        module_name, suffix = installed_suffixes[key]
+        if module_sources is not None:
+            installed_path = module_sources / module_name / "source" / suffix
+            if installed_path.exists():
+                return installed_path
+        if module_name == "spark-cli":
+            local_repo_path = spark_cli_repo_root / suffix
+            if local_repo_path.exists():
+                return local_repo_path
+            package_suffix = Path(*suffix.parts[2:]) if suffix.parts[:2] == ("src", "spark_cli") else suffix
+            local_package_path = spark_cli_package_root / package_suffix
+            if local_package_path.exists():
+                return local_package_path
+        return desktop_path
+
+    def resolve_repo_root(repo_name: str) -> Path:
+        if module_sources is not None:
+            installed_root = module_sources / repo_name / "source"
+            if installed_root.exists():
+                return installed_root
+        return desktop / repo_name
+
+    source_files = {key: resolve_source_file(key) for key in desktop_files}
     observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
 
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(desktop / "spawner-ui")
-    browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
+    spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
+    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
@@ -3947,7 +4554,7 @@ def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
         missing_count = int(current_window.get("missing_trace_ref_count") or 0)
         ratio = float(current_window.get("missing_trace_ref_ratio") or 0.0)
         if row_count and missing_count:
-            status = "current_missing_trace_refs"
+            status = "current_missing_trace_refs" if window == "1h" else "recent_missing_trace_refs"
         elif row_count and total_missing:
             status = "current_clean_historical_backlog"
         elif row_count:
@@ -3969,6 +4576,8 @@ def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
         "repair_scope": (
             "current"
             if status == "current_missing_trace_refs"
+            else "recent_backlog"
+            if status == "recent_missing_trace_refs"
             else "historical_backlog"
             if status in {"current_clean_historical_backlog", "no_recent_events_historical_backlog"}
             else status
@@ -4025,10 +4634,15 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
         )
 
     rows = as_list(as_dict(trace_health.get("missing_trace_ref_sources")).get("rows"))
+    seen_repair_keys: set[tuple[str, str]] = set()
     for row in rows[:10]:
         row = as_dict(row)
         component = str(row.get("component") or "unknown")
         event_type = str(row.get("event_type") or "unknown")
+        repair_key = (component, event_type)
+        if repair_key in seen_repair_keys:
+            continue
+        seen_repair_keys.add(repair_key)
         owner = trace_repair_owner(component)
         rank_reason = "largest Builder producer bucket missing trace_ref"
         safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
@@ -4064,7 +4678,11 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
                 "recent_1h_missing_trace_ref_count": int(row.get("recent_1h_missing_trace_ref_count") or 0),
                 "recent_24h_missing_trace_ref_count": int(row.get("recent_24h_missing_trace_ref_count") or 0),
                 "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
-                "current_health_status": current_health.get("status"),
+                "current_health_status": (
+                    "stale_missing_trace_ref" if stale_missing
+                    else "latest_clean" if latest_clean
+                    else current_health.get("status")
+                ),
                 "current_window": current_health.get("window"),
                 "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
                 "safe_fix": safe_fix,
@@ -4283,11 +4901,11 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
     trace_index["trace_current_health"] = build_trace_current_health(trace_index)
     trace_index["trace_repair_queue"] = build_trace_repair_queue(trace_index)
     trace_index["builder_trace_repair_cards"] = build_builder_trace_repair_cards(trace_index)
-    return trace_index
+    return redact_trace_index_projection(trace_index)
 
 
 def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
-    builder_memory_tables = inspect_builder_memory_tables(builder_home)
+    builder_memory_tables = redact_memory_index_paths(inspect_builder_memory_tables(builder_home), builder_home)
     trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
     trace_bridge_instruction = (
         "Audit legacy memory lane rows missing trace refs before cleanup; new memory preflight events should keep request_id and trace_ref."
@@ -4304,8 +4922,8 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
         ),
         "builder_memory_tables": builder_memory_tables,
         "safe_status_export": read_memory_movement_status_export(builder_home),
-        "memory_kb_artifacts": summarize_memory_kb_artifacts(builder_home),
-        "memory_run_artifacts": summarize_memory_run_artifacts(builder_home),
+        "memory_kb_artifacts": redact_memory_index_paths(summarize_memory_kb_artifacts(builder_home), builder_home),
+        "memory_run_artifacts": redact_memory_index_paths(summarize_memory_run_artifacts(builder_home), builder_home),
         "next_required_bridges": [
             "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
             "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
@@ -4313,6 +4931,9 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
             "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
         ],
     }
+    memory_index["trace_continuity"] = build_memory_movement_trace_continuity(memory_index)
+    memory_index["request_ref"] = memory_index["trace_continuity"]["request_ref"]
+    memory_index["trace_ref"] = memory_index["trace_continuity"]["trace_ref"]
     memory_index["memory_review_queue"] = build_memory_review_queue(memory_index)
     return memory_index
 
@@ -4853,31 +5474,46 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
                 head_commit = str(installed_git.get("head_commit") or "").strip().lower()
                 if registry_commit and head_commit and registry_commit != head_commit:
                     branch = str(installed_git.get("branch") or "").strip()
+                    runtime_classification = str(installed.get("runtime_classification") or "").strip()
+                    runtime_classification_reason = str(installed.get("runtime_classification_reason") or "").strip()
                     remote_branch_head = str(git_remote_branch_head(installed_path, branch) or "").strip().lower()
                     release_branch_published = bool(
                         branch.startswith("release/stability-") and remote_branch_head and remote_branch_head == head_commit
                     )
-                    classification = (
-                        "release_branch_pending_registry_batch"
-                        if release_branch_published
-                        else "runtime_ahead_of_registry_pin"
-                    )
-                    severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
-                    evidence = (
-                        "Running installed source is clean and its HEAD is already present on the release branch, "
-                        "but the public registry commit still points at the previous installer batch. "
-                        "This is an intentional release metadata decision, not dirty local file drift."
-                        if release_branch_published
-                        else "Running installed source is clean but its git HEAD differs from the registry commit. "
-                        "This is release metadata drift, not dirty local file drift."
-                    )
-                    next_safe_action = (
-                        "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
-                        "current public registry pin if the batch is deferred."
-                        if release_branch_published
-                        else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
-                        "installed source classified as a local runtime test artifact."
-                    )
+                    local_runtime_test = runtime_classification == "local_runtime_test_artifact"
+                    if local_runtime_test:
+                        classification = "local_runtime_test_artifact"
+                        severity = "decision"
+                        evidence = (
+                            "Running installed source is clean and intentionally classified as a local runtime test artifact. "
+                            "The public registry pin remains the installer truth until owner repo and release metadata catch up."
+                        )
+                        next_safe_action = (
+                            "Use this runtime for local proof only; remove the local-runtime classification after the owner repo "
+                            "commit is ported/pushed and registry or release metadata is updated."
+                        )
+                    else:
+                        classification = (
+                            "release_branch_pending_registry_batch"
+                            if release_branch_published
+                            else "runtime_ahead_of_registry_pin"
+                        )
+                        severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
+                        evidence = (
+                            "Running installed source is clean and its HEAD is already present on the release branch, "
+                            "but the public registry commit still points at the previous installer batch. "
+                            "This is an intentional release metadata decision, not dirty local file drift."
+                            if release_branch_published
+                            else "Running installed source is clean but its git HEAD differs from the registry commit. "
+                            "This is release metadata drift, not dirty local file drift."
+                        )
+                        next_safe_action = (
+                            "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
+                            "current public registry pin if the batch is deferred."
+                            if release_branch_published
+                            else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
+                            "installed source classified as a local runtime test artifact."
+                        )
                     items.append(
                         duplicate_truth_item(
                             item_id=f"{module_id}-runtime-registry-pin-drift",
@@ -4900,6 +5536,8 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
                                 "release_branch_published": release_branch_published,
                                 "runtime_dirty_tracked_count": dirty,
                                 "runtime_untracked_count": untracked,
+                                "runtime_classification": runtime_classification or None,
+                                "runtime_classification_reason": runtime_classification_reason or None,
                             },
                         )
                     )
@@ -4966,14 +5604,18 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         repo = as_dict(repo)
         name = str(repo.get("name") or "")
         ids = repo_ids(repo)
+        board_name = repo_board_identity(repo, ids)
         registry_present = bool(ids & registry_modules)
         installed_present = bool(ids & installed_modules)
         git = git_board_status(Path(str(repo.get("path") or "")))
         manifest = repo_manifest_presence(repo)
-        release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
+        release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(
+            board_name, git, manifest, registry_present
+        )
         rows.append(
             {
-                "repo": name,
+                "repo": board_name,
+                "repo_dir": name,
                 "path": repo.get("path"),
                 "branch": git.get("branch"),
                 "upstream": git.get("upstream"),
@@ -4987,9 +5629,9 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
                 "registry_present": registry_present,
                 "installed_present": installed_present,
                 "module_ids": sorted(ids),
-                "owner_surface": repo_owner_surface(name),
+                "owner_surface": repo_owner_surface(board_name),
                 "release_eligibility": release_eligibility,
-                "risk_class": repo_risk_class(name, release_eligibility),
+                "risk_class": repo_risk_class(board_name, release_eligibility),
                 "next_safe_action": next_safe_action,
                 "do_not_merge_reason": do_not_merge_reason,
             }
@@ -5035,14 +5677,56 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_voice_surface_trace_continuity(view: dict[str, Any]) -> dict[str, Any]:
+    trace = as_dict(view.get("trace"))
+    seed_payload = {
+        "schema_version": VOICE_SURFACE_SCHEMA,
+        "source": "spark-cli.system_map.build_voice_surface_view",
+        "owner_system": view.get("owner_system"),
+        "mode": view.get("mode"),
+        "source_capability": view.get("source_capability"),
+        "provider": view.get("provider"),
+        "trace": trace,
+        "blockers": view.get("blockers"),
+    }
+    seed = json.dumps(seed_payload, sort_keys=True, separators=(",", ":"), default=str)
+    request_ref = redacted_identifier("request_ref", f"voice-surface-request:{seed}")
+    trace_ref = redacted_identifier("trace_ref", f"voice-surface-trace:{seed}")
+    return {
+        "schema_version": "spark.voice_surface_trace_continuity.v1",
+        "source": "spark-cli.system_map.build_voice_surface_view",
+        "authority": "observability_non_authoritative",
+        "request_ref": request_ref,
+        "trace_ref": trace_ref,
+        "claim_boundary": (
+            "These refs identify the redacted Spark OS voice surface compile artifact only. "
+            "They do not authorize voice transcription, speech synthesis, Telegram delivery, or action execution."
+        ),
+        "runtime_state_export_present": bool(trace.get("runtime_state_export_present")),
+        "final_answer_check_supported": bool(trace.get("final_answer_check_supported")),
+        "voice_events_supported": bool(trace.get("voice_events_supported")),
+        "raw_audio_exported": False,
+        "transcript_bodies_exported": False,
+        "proof_status": "not_execution_proof",
+    }
+
+
 def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
     repos = [as_dict(repo) for repo in as_list(system_map.get("discovered_repos"))]
-    repo_names = {str(repo.get("name")) for repo in repos}
-    repo_paths = {
-        str(repo.get("name")): Path(str(repo.get("path"))).expanduser()
-        for repo in repos
-        if isinstance(repo.get("path"), str) and str(repo.get("path")).strip()
-    }
+    repo_names: set[str] = set()
+    repo_paths: dict[str, Path] = {}
+    for repo in repos:
+        identities = set(repo_ids(repo))
+        raw_name = str(repo.get("name") or "").strip()
+        if raw_name:
+            identities.add(raw_name)
+        path = str(repo.get("path") or "").strip()
+        for identity in identities:
+            if not identity:
+                continue
+            repo_names.add(identity)
+            if path:
+                repo_paths.setdefault(identity, Path(path).expanduser())
     installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
     available = "spark-voice-comms" in repo_names
     installed = "spark-voice-comms" in installed_modules
@@ -5162,6 +5846,8 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         blockers.append("voice ingress/egress source hooks are not detected")
     if available and installed and not runtime_state_export_present:
         blockers.append("voice provider/profile runtime status is not exported to Spark OS state")
+    if runtime_state_export_present and ingress_source_present and not stt_ready:
+        blockers.append("voice transcription is not ready")
     if runtime_state_export_present and runtime_claims.get("synthesis_ready") is not True:
         blockers.append("voice synthesis is not ready")
     if runtime_state_export_present and runtime_claims.get("delivery_ready") is not True:
@@ -5191,7 +5877,7 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         runtime_tts.get("voice_id_fingerprint"),
     )
 
-    return {
+    view = {
         "schema_version": VOICE_SURFACE_SCHEMA,
         "generated_at": utc_now(),
         "owner_system": "spark-voice-comms",
@@ -5241,6 +5927,10 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         "blockers": blockers,
         "redaction": "metadata only; raw audio, transcript bodies, provider secrets, and voice profile secrets omitted",
     }
+    view["trace_continuity"] = build_voice_surface_trace_continuity(view)
+    view["request_ref"] = view["trace_continuity"]["request_ref"]
+    view["trace_ref"] = view["trace_continuity"]["trace_ref"]
+    return view
 
 
 def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
@@ -5365,7 +6055,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
     compiled = {
         "system_map": system_map,
-        "authority_view": build_authority_view(desktop, setup_summary),
+        "authority_view": build_authority_view(desktop, setup_summary, spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
         "memory_movement_index": build_memory_movement_index(builder_home),
@@ -5379,6 +6069,20 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+# Match real absolute filesystem paths only: Windows drive paths, ~ home paths,
+# and POSIX paths anchored to known root directories. Anchoring avoids redacting
+# non-filesystem slashy text such as URL paths (e.g. /api/v2/users).
+_PATH_REDACT_RE = re.compile(
+    r"(?:[A-Za-z]:[\\/]|~[\\/]|/(?:home|Users|var|tmp|opt|etc|root|mnt|srv|private|usr|Library|Applications)/)"
+    r"(?:[\w.\-]+[\\/])*[\w.\-]+"
+)
+
+
+def _redact_internal_paths(text: str) -> str:
+    """Replace absolute filesystem paths with a placeholder to prevent leaking internal paths in user-facing output."""
+    return _PATH_REDACT_RE.sub("[redacted-path]", text)
 
 
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
@@ -5404,7 +6108,9 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         for gap in gaps:
             count = int(gap.get("count", "1"))
             suffix = f" Observed {count} times." if count > 1 else ""
-            lines.append(f"- [{gap['severity']}] {gap['area']} / {gap['item']}: {gap['message']}{suffix}")
+            safe_item = _redact_internal_paths(gap["item"])
+            safe_message = _redact_internal_paths(gap["message"])
+            lines.append(f"- [{gap['severity']}] {gap['area']} / {safe_item}: {safe_message}{suffix}")
     lines.extend(
         [
             "",
@@ -5421,7 +6127,7 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
+def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any], *, validate_path: Callable[[Path], None] | None = None) -> dict[str, str]:
     system_map = as_dict(compiled["system_map"])
     paths = {
         "system_map": out_dir / "system-map.json",
@@ -5434,6 +6140,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
         "operating_cockpit": out_dir / "operating-cockpit.json",
         "gaps": out_dir / "gaps.md",
     }
+    tuple(map(validate_path, paths.values())) if validate_path is not None else ()
     write_json(paths["system_map"], system_map)
     write_json(paths["authority_view"], compiled["authority_view"])
     write_json(paths["capability_catalog"], compiled["capability_catalog"])
@@ -5458,10 +6165,15 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     builder_event_samples = as_dict(trace_index.get("builder_event_samples"))
     builder_trace_groups = as_dict(trace_index.get("builder_trace_groups"))
     builder_trace_health = as_dict(trace_index.get("builder_trace_health"))
+    builder_trace_current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
+    builder_trace_temporal_state_counts = builder_trace_repair_temporal_state_counts(builder_trace_health)
+    builder_high_severity_lifecycle = builder_trace_high_severity_lifecycle_summary(builder_trace_health)
+    duplicate_truth_owner_sets = duplicate_truth_owner_summary(duplicate_truths)
     review_candidates = as_dict(trace_index.get("review_candidates"))
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
     return {
+        "ok": True,
         "schema_version": "spark.os_compile.summary.v0",
         "generated_at": system_map.get("generated_at"),
         "modules": len(as_list(system_map.get("modules"))),
@@ -5480,14 +6192,186 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "builder_event_samples": builder_event_samples.get("sample_count"),
         "builder_trace_groups": builder_trace_groups.get("group_count"),
         "builder_trace_health_flags": as_list(builder_trace_health.get("health_flags")),
+        "builder_trace_current_health": {
+            "status": builder_trace_current_health.get("status"),
+            "window": builder_trace_current_health.get("window"),
+            "row_count": builder_trace_current_health.get("row_count"),
+            "missing_trace_ref_count": builder_trace_current_health.get("missing_trace_ref_count"),
+            "historical_missing_trace_ref_count": builder_trace_current_health.get("historical_missing_trace_ref_count"),
+            "total_missing_trace_ref_count": builder_trace_current_health.get("total_missing_trace_ref_count"),
+            "missing_trace_ref_ratio": builder_trace_current_health.get("missing_trace_ref_ratio"),
+            "high_severity_open_count": builder_trace_health.get("high_severity_open_count"),
+            "unresolved_high_severity_open_count": builder_trace_health.get("unresolved_high_severity_open_count"),
+            "current_unresolved_high_severity_open_count": builder_trace_health.get(
+                "current_unresolved_high_severity_open_count"
+            ),
+            "unresolved_high_severity_source_group_count": builder_high_severity_lifecycle.get(
+                "unresolved_source_group_count",
+                0,
+            ),
+            "latest_unresolved_high_severity_event_created_at": builder_high_severity_lifecycle.get(
+                "latest_unresolved_event_created_at"
+            ),
+            "repair_temporal_state_counts": builder_trace_temporal_state_counts,
+            "latest_missing_source_group_count": builder_trace_temporal_state_counts.get("latest_missing_trace_ref", 0),
+            "latest_clean_historical_window_debt_group_count": builder_trace_temporal_state_counts.get(
+                "latest_clean_historical_window_debt",
+                0,
+            ),
+            "latest_missing_group_count": builder_trace_temporal_state_counts.get("latest_missing_trace_ref", 0),
+            "latest_clean_window_debt_group_count": builder_trace_temporal_state_counts.get(
+                "latest_clean_historical_window_debt",
+                0,
+            ),
+            "latest_clean_group_count": builder_trace_temporal_state_counts.get(
+                "latest_clean_historical_window_debt",
+                0,
+            ),
+        },
+        "builder_trace_recent_windows": [
+            {
+                "window": as_dict(row).get("window"),
+                "row_count": as_dict(row).get("row_count"),
+                "missing_trace_ref_count": as_dict(row).get("missing_trace_ref_count"),
+                "missing_trace_ref_ratio": as_dict(row).get("missing_trace_ref_ratio"),
+                "high_severity_open_count": as_dict(row).get("high_severity_open_count"),
+                "high_severity_open_ratio": as_dict(row).get("high_severity_open_ratio"),
+            }
+            for row in as_list(builder_trace_health.get("recent_windows"))[:3]
+        ],
         "review_candidates": as_dict(review_candidates.get("counts")).get("candidate_count"),
         "memory_movement_status": memory_status.get("status"),
         "memory_movement_rows": memory_status.get("row_count"),
         "builder_memory_table_count": builder_memory_tables.get("table_count"),
         "repo_board": as_dict(repo_board.get("summary")),
-        "duplicate_truths": as_dict(duplicate_truths.get("summary")),
+        "duplicate_truths": {
+            **as_dict(duplicate_truths.get("summary")),
+            "owner_sets": duplicate_truth_owner_sets,
+        },
+        "publish_handoffs": publish_handoff_summary(
+            repo_board=repo_board,
+            duplicate_truths=duplicate_truths,
+            builder_trace_health=builder_trace_health,
+            builder_high_severity_lifecycle=builder_high_severity_lifecycle,
+        ),
         "voice_surface_mode": voice_surface.get("mode"),
         "voice_surface_blockers": len(as_list(voice_surface.get("blockers"))),
         "privacy": system_map.get("privacy"),
         "outputs": written or {},
+    }
+
+
+def publish_handoff_summary(
+    *,
+    repo_board: dict[str, Any],
+    duplicate_truths: dict[str, Any],
+    builder_trace_health: dict[str, Any],
+    builder_high_severity_lifecycle: dict[str, Any],
+) -> dict[str, Any]:
+    blocked_repos: list[dict[str, Any]] = []
+    for row in as_list(repo_board.get("repos")):
+        row = as_dict(row)
+        if row.get("release_eligibility") != "blocked":
+            continue
+        repo = str(row.get("repo") or "").strip()
+        reason = str(row.get("do_not_merge_reason") or "").strip()
+        next_safe_action = str(row.get("next_safe_action") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_.-]+", repo):
+            continue
+        if reason and not re.fullmatch(r"[A-Za-z0-9 ._/-]+", reason):
+            continue
+        if next_safe_action and not re.fullmatch(r"[A-Za-z0-9 ._/-]+", next_safe_action):
+            continue
+        item: dict[str, Any] = {
+            "repo": repo,
+            "risk_class": row.get("risk_class"),
+            "reason": reason or None,
+            "next_safe_action": next_safe_action or None,
+        }
+        behind = row.get("behind")
+        if isinstance(behind, int) and behind >= 0:
+            item["behind"] = behind
+        blocked_repos.append(item)
+
+    duplicate_summary = as_dict(duplicate_truths.get("summary"))
+    owner_sets = duplicate_truth_owner_summary(duplicate_truths)
+    local_runtime_owners = owner_sets.get("local_runtime_test_artifact", [])
+
+    unresolved_source_group_count = int(builder_high_severity_lifecycle.get("unresolved_source_group_count") or 0)
+    latest_unresolved = builder_high_severity_lifecycle.get("latest_unresolved_event_created_at")
+    builder_handoff = {
+        "flags": as_list(builder_trace_health.get("health_flags")),
+        "high_severity_open_count": builder_trace_health.get("high_severity_open_count"),
+        "unresolved_high_severity_open_count": builder_trace_health.get("unresolved_high_severity_open_count"),
+        "current_unresolved_high_severity_open_count": builder_trace_health.get(
+            "current_unresolved_high_severity_open_count"
+        ),
+        "unresolved_high_severity_source_group_count": unresolved_source_group_count,
+        "latest_unresolved_high_severity_event_created_at": latest_unresolved,
+    }
+
+    families = []
+    if blocked_repos:
+        families.append("repo_release_blocks")
+    if local_runtime_owners:
+        families.append("local_runtime_test_artifacts")
+    if unresolved_source_group_count:
+        families.append("builder_trace_health")
+
+    return {
+        "schema_version": "spark.publish_handoffs.summary.v0",
+        "family_count": len(families),
+        "families": families,
+        "blocked_release_repos": sorted(blocked_repos, key=lambda item: item["repo"]),
+        "local_runtime_test_artifacts": {
+            "count": int(as_dict(duplicate_summary.get("classification_counts")).get("local_runtime_test_artifact") or 0),
+            "owners": local_runtime_owners,
+        },
+        "builder_trace_health": builder_handoff,
+    }
+
+
+def builder_trace_repair_temporal_state_counts(builder_trace_health: dict[str, Any]) -> dict[str, int]:
+    rows = as_list(as_dict(builder_trace_health.get("missing_trace_ref_sources")).get("rows"))
+    counts: dict[str, int] = {}
+    for row in rows:
+        state = str(as_dict(row).get("repair_temporal_state") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_.-]+", state):
+            continue
+        counts[state] = counts.get(state, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def builder_trace_high_severity_lifecycle_summary(builder_trace_health: dict[str, Any]) -> dict[str, Any]:
+    rows = as_list(as_dict(builder_trace_health.get("high_severity_open_sources")).get("rows"))
+    unresolved_rows = [
+        as_dict(row)
+        for row in rows
+        if str(as_dict(row).get("latest_lifecycle_state") or "") != "latest_resolved"
+    ]
+    latest_created_at = ""
+    for row in unresolved_rows:
+        created_at = str(row.get("latest_event_created_at") or "").strip()
+        if created_at and created_at > latest_created_at:
+            latest_created_at = created_at
+    return {
+        "unresolved_source_group_count": len(unresolved_rows),
+        "latest_unresolved_event_created_at": latest_created_at or None,
+    }
+
+
+def duplicate_truth_owner_summary(duplicate_truths: dict[str, Any]) -> dict[str, list[str]]:
+    owners_by_classification: dict[str, set[str]] = {}
+    for item in as_list(duplicate_truths.get("items")):
+        item = as_dict(item)
+        classification = str(item.get("classification") or "").strip()
+        owner = str(item.get("owner_repo") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_.-]+", classification):
+            continue
+        if not re.fullmatch(r"[a-z0-9_.-]+", owner):
+            continue
+        owners_by_classification.setdefault(classification, set()).add(owner)
+    return {
+        classification: sorted(owners)
+        for classification, owners in sorted(owners_by_classification.items())
     }

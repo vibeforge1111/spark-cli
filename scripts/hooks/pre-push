@@ -1,0 +1,34 @@
+#!/bin/sh
+# Binding release gate — pre-push hook (item 0.3; research-repo docs/33 §1).
+#
+# Refuses any push that performs a gated action (G1 registry-pin advance, G2 release-tag
+# push, G4 installer-manifest change) unless the latest release-gate capture is green or
+# every red check carries a valid per-check spark-waiver.v1 entry. FAIL-CLOSED: if the
+# gate cannot run (python missing, module missing, no capture), the push is refused.
+# There is no --force; the escape hatch is a written waiver (33 §2).
+#
+# Armed deliberately via `spark release-gate install-hooks` (sets core.hooksPath).
+# git invokes this as: pre-push <remote-name> <remote-url> with ref lines on stdin.
+
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ]; then
+    echo "release-gate: cannot resolve repo root — refusing push (fail closed)" >&2
+    exit 1
+fi
+
+PYTHON_BIN="${SPARK_RELEASE_GATE_PYTHON:-python3}"
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    echo "release-gate: ${PYTHON_BIN} not on PATH — refusing push (fail closed)" >&2
+    exit 1
+fi
+
+PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
+    "${PYTHON_BIN}" -m spark_cli.release_gate --repo-root "${REPO_ROOT}" hook-check
+STATUS=$?
+if [ "${STATUS}" -ne 0 ]; then
+    echo "release-gate: push refused (exit ${STATUS})" >&2
+    exit 1
+fi
+exit 0

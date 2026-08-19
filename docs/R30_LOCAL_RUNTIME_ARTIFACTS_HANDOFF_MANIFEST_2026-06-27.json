@@ -1,0 +1,140 @@
+{
+  "schema_version": "spark.r30.local_runtime_artifacts_handoff_manifest.v0",
+  "generated_at": "2026-07-01T18:48:38Z",
+  "release": "spark-cli-public-installer-2026-06-27-r30",
+  "status": "blocked_before_registry_or_installer_publication",
+  "publication_boundary": "No Telegram or Spawner registry pin, installed metadata, installer pin, tag, deploy, or hosted publication is authorized by this manifest.",
+  "artifacts": [
+    {
+      "module": "spark-telegram-bot",
+      "runtime_classification": "local_runtime_test_artifact",
+      "expected_registry_commit": "3323a656b890f88262e88d862e2787c9a2f092ae",
+      "local_head": "3323a656b890f88262e88d862e2787c9a2f092ae",
+      "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..3323a656b890f88262e88d862e2787c9a2f092ae",
+      "commit_count": 1058,
+      "changed_file_count": 392,
+      "first_local_commit": "43aeb4e476b920c73541818c58add8045231f47f",
+      "first_local_commit_subject": "Add Telegram rich draft streaming controls",
+      "last_local_commit": "3323a656b890f88262e88d862e2787c9a2f092ae",
+      "last_local_commit_subject": "Resolve loop status for new domain chips",
+      "owner_refs": {
+        "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "harness_discipline_line_count_gate": null,
+        "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
+      },
+      "required_terminal_subjects": [
+        "Add Telegram rich draft streaming controls",
+        "Package Telegram control release evidence",
+        "Prove Telegram Level 5 activation path",
+        "Fix Level 5 Codex sandbox confirmation",
+        "Surface effective Level 5 sandbox in Telegram",
+        "Block Level 5 full-access copy on read-only sandbox",
+        "Require effective Level 5 sandbox before operator claims",
+        "Harden Telegram Level 5 sandbox status",
+        "Harden Telegram Level 5 proof gate",
+        "Use proof oracle for Telegram Level 5",
+        "Require effective Level 5 sandbox proof in Telegram",
+        "Require Level 5 proof for operator access status",
+        "Harden Telegram Level 5 runtime env",
+        "Compact Telegram imports after Level 5 env fix",
+        "Harden Recursive Level 5 runtime env",
+        "Preserve Telegram token during profile health checks",
+        "Harden Telegram profile Level 5 env proof",
+        "Refresh Telegram Level 5 profile env",
+        "Require Telegram Level 5 full permission proof",
+        "Document Level 5 full permission audit",
+        "Preserve natural Level 5 confirmations",
+        "Harden Telegram Level 5 proof agreement",
+        "Improve domain chip creation preview",
+        "Harden DCL creator mission routing"
+      ],
+      "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
+      "owner_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry movement.",
+      "proof_commands": [
+        "npm test -- --run tests/domainChipLabsCreator.test.ts",
+        "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+        "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+        "npm run build",
+        "npm run control:proof:reliability",
+        "npm run check:line-count",
+        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+        "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
+      ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+        "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+        "line_count": 106366,
+        "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
+        "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"58fa67eb52e9e7f27e0162ce971b0ac137e9aa69\"",
+        "proof_command": "npm test -- --run tests/domainChipLabsCreator.test.ts && npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts && npm test -- --run tests/buildE2E.test.ts && npm run build && npm run check:line-count",
+        "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability and future-chip registry lookup gates passed; buildE2E passed; build passed; line-count passed",
+        "latest_proof_checked_at": "2026-07-01T18:48:38Z",
+        "publication_authority": false
+      },
+      "local_proof": "passed"
+    },
+    {
+      "module": "spawner-ui",
+      "runtime_classification": "local_runtime_test_artifact",
+      "expected_registry_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "local_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+      "local_range": "19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "commit_count": 8,
+      "changed_file_count": 276,
+      "first_local_commit": "461c1c07caef6c54fca223f0c0c3547c2a865283",
+      "first_local_commit_subject": "Honor Level 5 Codex sandbox in direct client",
+      "last_local_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "last_local_commit_subject": "Squash Spawner loop engineering source",
+      "owner_refs": {
+        "main": "451d009aad84142092e9a21bda7788cf07910975",
+        "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+        "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
+      },
+      "required_terminal_subjects": [
+        "Carry Harness proof refs in PRD traces",
+        "Add Spawner PRD proof continuity repair",
+        "Honor Level 5 Codex sandbox in direct client",
+        "Honor Level 5 sandbox in PRD Codex lanes",
+        "Honor persisted Level 5 sandbox in Spawner",
+        "Honor persisted Level 5 worker access",
+        "Carry Level 5 env into Codex workers",
+        "Promote Level 5 env for Spawner access actions"
+      ],
+      "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
+      "owner_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry movement.",
+      "proof_commands": [
+        "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+        "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+        "npm run build",
+        "npm run check"
+      ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+        "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+        "line_count": 2574,
+        "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"b5c43beb7035eac0d59b8b1d1517a66ab52e0be3\"",
+        "proof_command": "npm test -- --run src/lib/server/access-execution-actions.test.ts src/lib/server/high-agency-workers.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts && npm run build",
+        "proof_result": "44 passed; build passed",
+        "publication_authority": false
+      },
+      "local_proof": "passed"
+    }
+  ],
+  "required_after_owner_handoff": [
+    "spark os compile --json",
+    "spark live status --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json"
+  ]
+}
