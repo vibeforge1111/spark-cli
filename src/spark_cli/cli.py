@@ -14078,6 +14078,7 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "git_history_mutation",
     "high_cost_execution",
     "identity_access_mutation",
+    "high_cost_execution",
     "network_exfiltration",
     "remote_code_execution",
     "container_privilege_escalation",
