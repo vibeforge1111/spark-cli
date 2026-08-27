@@ -21418,6 +21418,7 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
     _wrap_subgroup_help(telegram_parser, ["status", "connect"])
     update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
+    update_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     update_parser.add_argument("target", nargs="?")
     update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
     update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
