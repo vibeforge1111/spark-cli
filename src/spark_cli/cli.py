@@ -77,6 +77,8 @@ from .system_map import compile_summary, compile_system_map, git_board_status, w
 from .telegram_fix_health import resolve_telegram_fix_health
 from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
+SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -1203,6 +1205,8 @@ def is_dirty_update_failure(detail: str) -> bool:
         "working tree has local changes" in lowered
         or "commit or stash" in lowered
         or "local changes would be overwritten" in lowered
+
+    timeout=SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS,
     )
 
 
