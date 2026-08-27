@@ -48,5 +48,5 @@ EXPOSE 5173
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD spark live status >/dev/null || exit 1
 
-USER root
+USER spark
 ENTRYPOINT ["spark-live-entrypoint"]
