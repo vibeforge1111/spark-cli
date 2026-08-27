@@ -18366,8 +18366,9 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=10,
             )
-        except FileNotFoundError:
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             return None
         if result.returncode != 0:
             return None
@@ -18386,8 +18387,9 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=10,
         )
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
         return None
