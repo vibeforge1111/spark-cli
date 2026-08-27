@@ -77,6 +77,8 @@ from .system_map import compile_summary, compile_system_map, git_board_status, w
 from .telegram_fix_health import resolve_telegram_fix_health
 from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
+SPARK_CLI_PULL_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -1181,7 +1183,9 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
             git_command("-C", str(module.path), "verify-commit", pinned_commit)
         )
         if verify.returncode != 0:
-            return False, summarize_command_output(verify)
+            return False, summarize_command_output(verify
+            timeout=SPARK_CLI_PULL_MODULE_SOURCE_TIMEOUT_SECONDS,
+            )
 
     checkout = run_bounded_git_command(
         git_command("-C", str(module.path), "checkout", "--detach", pinned_commit)
