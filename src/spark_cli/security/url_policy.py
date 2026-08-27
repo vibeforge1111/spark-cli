@@ -64,7 +64,16 @@ def _legacy_ipv4_part(value: str) -> int | None:
             return int(value[1:] or "0", 8)
         return int(value, 10)
     except ValueError:
-        return None
+        pass
+    try:
+        addrs = socket.getaddrinfo(host, 80, type=socket.SOCK_STREAM)
+        for family, _type, _proto, _cname, addr in addrs:
+            if family in (socket.AF_INET, socket.AF_INET6):
+                ip_str = addr[0]
+                return ipaddress.ip_address(ip_str)
+    except (socket.gaierror, OSError, ValueError):
+        pass
+    return None
 
 
 def _legacy_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
