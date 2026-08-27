@@ -77,6 +77,8 @@ from .system_map import compile_summary, compile_system_map, git_board_status, w
 from .telegram_fix_health import resolve_telegram_fix_health
 from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
+SPARK_CLI_CLONE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -1127,7 +1129,9 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
     source = str(registry_metadata.get("source", ""))
     pinned_commit = validate_commit_pin(str(registry_metadata.get("commit", "")))
     if not (is_git_source(source) and pinned_commit):
-        return pull_module_source(module.path)
+        return pull_module_source(module.path
+        timeout=SPARK_CLI_CLONE_MODULE_SOURCE_TIMEOUT_SECONDS,
+        )
 
     status = run_bounded_git_command(git_command("-C", str(module.path), "status", "--porcelain"))
     if status.returncode != 0:
