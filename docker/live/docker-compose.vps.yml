@@ -13,7 +13,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=256m
       - /home/spark:rw,nosuid,size=128m
     volumes:
-      - ./spark-data:/data/spark
+      - ./spark-data:/data/spark:z
     ports:
       - "5173:5173"
     env_file:
