@@ -9,7 +9,9 @@ RUN apt-get update \
         curl \
         git \
         openssh-client \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /bin/bash spark \
+    && chown -R spark:spark /workspace/spark-cli
 
 WORKDIR /workspace/spark-cli
 
@@ -26,5 +28,7 @@ RUN python -m pip install --upgrade pip \
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     SPARK_HOME=/tmp/spark-home
+
+USER spark
 
 CMD ["bash", "-lc", "python -m pytest tests/test_docker_entrypoint.py -q && spark --help >/tmp/spark-help.txt"]
