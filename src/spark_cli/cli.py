@@ -38,27 +38,9 @@ from xml.sax.saxutils import escape as xml_escape
 
 import tomllib
 
-from . import secret_input_authority
-from .command_summary import sanitize_command_line, select_failure_summary
-from .bridge_key import BRIDGE_API_KEY_ENV, BRIDGE_API_KEY_SECRET_ID, BRIDGE_CONSUMER_MODULES
-from .bridge_key import RESERVED_CONTROL_KEYS, load_generated_bridge_envs, resolve_shared_spawner_bridge_api_key
-from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
-from .machine_output import emit_json_payload, render_module_listing, resolve_os_json_output_path
-from . import managed_secret_runtime
-from .provider_auth import effective_provider_auth_mode
-from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
-from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
-from .r30_merged_source_truth import (
-    classify_r30_os_compile_status,
-    collect_r30_merged_source_truth_status,
-    evaluate_r30_source_truth,
-    present_r30_historical_handoffs,
-)
-from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
-from .secret_listing import render_secret_presence, render_stored_secret_listing
-from .secret_storage_notice import warn_insecure_file_secret_storage
-from .secret_help import SECRET_BACKEND_HELP, SECRET_ID_DELETE_HELP, SECRET_ID_GET_HELP, SECRET_ID_SET_HELP
-from .security.approval import CommandContext, approval_required_for_command, parse_command_text
+from .env_files import normalize_env_file_value
+from .runtime_policy import npm_install_command_argv, run_runtime_command, runtime_command_argv, split_single_argv_command
+from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.provider_transport import (
     open_pinned_provider_request as _open_pinned_provider_request,
@@ -8224,7 +8206,7 @@ def install_command_argv(command: str) -> list[str]:
         _reject_custom_pip_index(pip_args)
         return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "npm":
-        return [resolve_install_executable("npm"), *parts[1:]]
+        return npm_install_command_argv(parts[1:])
     raise SystemExit(
         "Unsupported install command executable. Allowed install commands must start with "
         "python, python3, pip, pip3, uv pip, or npm."
