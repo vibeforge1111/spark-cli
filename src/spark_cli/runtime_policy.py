@@ -9,10 +9,38 @@ from pathlib import Path
 
 
 SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
+MANAGED_NODE_WINDOWS_DIRNAME = "node-v22.18.0-win-x64"
+
+
+def managed_node_windows_dir(spark_home: Path | None = None) -> Path:
+    if spark_home is None:
+        configured_home = os.environ.get("SPARK_HOME")
+        spark_home = Path(configured_home).expanduser() if configured_home else Path.home() / ".spark"
+    return spark_home / "tools" / MANAGED_NODE_WINDOWS_DIRNAME
+
+
+def managed_node_tool_candidates(name: str) -> list[Path]:
+    if os.name != "nt":
+        return []
+    raw_name = str(name or "").strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+    tool_name = raw_name.removesuffix(".exe").removesuffix(".cmd").removesuffix(".bat").removesuffix(".ps1")
+    managed_root = managed_node_windows_dir()
+    if tool_name == "node":
+        return [managed_root / "node.exe"]
+    if tool_name == "npm":
+        return [managed_root / candidate for candidate in ("npm.cmd", "npm.exe", "npm.bat", "npm.ps1")]
+    return []
 
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
-    parts = shlex.split(command, posix=True)
+    if os.name == "nt":
+        lexer = shlex.shlex(command, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        lexer.escape = ""
+        parts = list(lexer)
+    else:
+        parts = shlex.split(command, posix=True)
     if not parts:
         raise SystemExit(f"{subject} cannot be empty.")
     if any(part in SHELL_CHAIN_TOKENS for part in parts):
@@ -29,6 +57,9 @@ def resolve_runtime_executable(name: str) -> str:
             path = shutil.which(name + suffix)
             if path:
                 return path
+    for candidate in managed_node_tool_candidates(name):
+        if candidate.is_file():
+            return str(candidate)
     raise SystemExit(
         f"Missing required runtime tool `{name}`. Install it, reopen the terminal, then rerun the command. "
         "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."

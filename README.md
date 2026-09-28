@@ -29,6 +29,7 @@ spark status
 
 That default setup installs:
 
+- `spark-harness-core`
 - `spark-researcher`
 - `spark-character`
 - `spark-intelligence-builder`
@@ -50,7 +51,26 @@ spark setup telegram-voice-starter
 
 Add `--elevenlabs-api-key @clipboard` if you want hosted ElevenLabs TTS configured during setup. The key is stored in Spark secrets and injected into Builder at runtime; it is not written into Telegram config.
 
+For hosted OpenAI transcription or Realtime voice, store the dedicated Voice key first, then resume the voice bundle setup:
+
+```bash
+spark secrets set voice.openai.api_key
+spark setup telegram-voice-starter --resume
+```
+
+Spark injects that key as `VOICE_OPENAI_API_KEY` only across the installed Voice boundary. It does not reuse the Agent role's `OPENAI_API_KEY`, which may belong to another OpenAI-compatible provider.
+
+To rotate the local Telegram↔Spawner control key without putting it in command history:
+
+```bash
+spark secrets set spark.bridge_api_key --generate
+```
+
+Spark stages the replacement in managed secret storage, stops only the currently running bridge consumers, promotes one shared generation, starts Spawner first, and restores exactly the Telegram profiles that were running. A failed health check rolls the generation and consumer set back.
+
 Public builder labs such as `spark-domain-chip-labs` and `spark-personality-chip-labs` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
+
+The current installer proof lane covers 11 canonical repos: `spark-cli` plus the 10 registry-pinned runtime/support modules. The plain `telegram-starter` bundle exercises Harness Core, Researcher, Character, Builder, Memory, Spawner, and Telegram directly. `telegram-voice-starter`, QA Evidence Lane, and Skill Graphs require their own optional-module proof before claiming the entire 11-repo lane is ship-ready.
 
 For creator-system and specialization-path work, verify those optional surfaces explicitly:
 
@@ -65,6 +85,8 @@ If another `spark` binary is already on your PATH, use `spark-local`. The packag
 ## What Spark CLI Does
 
 Spark CLI is the installer and operator shell for the Spark ecosystem. It gives a normal user one path instead of several separate repo installs.
+
+Spark runs an autonomous agent on your machine. Before granting access, read [SECURITY.md](./SECURITY.md) for the plain-language privacy, access-model, and telemetry disclosure: what is stored locally under `~/.spark/`, what the agent can read/write/run at each access level, and the fact that Spark has no usage telemetry or phone-home.
 
 ```mermaid
 flowchart TD
@@ -105,26 +127,26 @@ Per-module runtimes are declared in each module's `spark.toml`. The installer ch
 
 ## Install The CLI
 
-Recommended macOS/Linux/WSL install. The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading the managed Node runtime:
+Recommended macOS/Linux/WSL install. Download the hosted installer, inspect its dry-run plan, then run the same file. The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading the managed Node runtime:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.sh
-less install.sh
-bash ./install.sh
+curl -fsSL https://agent.sparkswarm.ai/install.sh -o spark-install.sh
+bash spark-install.sh --dry-run
+bash spark-install.sh
 ```
 
 Recommended Windows PowerShell install:
 
 ```powershell
-iwr https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.ps1 -OutFile .\install.ps1
-Get-Content .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+iwr https://agent.sparkswarm.ai/install.ps1 -OutFile spark-install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\spark-install.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File .\spark-install.ps1
 ```
 
 Windows scripted setup can pass the normal onboarding values directly to the installer:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+powershell -ExecutionPolicy Bypass -File .\spark-install.ps1 `
   -NonInteractiveSetup `
   -BotToken $env:TELEGRAM_BOT_TOKEN `
   -AdminTelegramIds $env:TELEGRAM_ADMIN_IDS `
@@ -133,7 +155,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 `
 
 The Windows installer adds `~\.spark\bin` to your user PATH so a new CMD or PowerShell can run `spark status` directly. If the current terminal still finds another `spark.exe`, reopen it or use the direct wrapper path: `%USERPROFILE%\.spark\bin\spark.cmd status`.
 
-The launch docs intentionally avoid piping remote scripts directly into a shell. The installer also verifies the managed Node archive against Node's published `SHASUMS256.txt` before extraction.
+The launch docs intentionally avoid piping remote scripts directly into a shell. Before installing, compare the downloaded file with the hosted [checksums](https://agent.sparkswarm.ai/install/checksums.txt) and [release manifest](https://agent.sparkswarm.ai/install/release-manifest.json); [attestation guidance](https://agent.sparkswarm.ai/install/attestations.md) is also available. The installer verifies the managed Node archive against Node's published `SHASUMS256.txt` before extraction.
 If a good Node/npm is already installed, the installer uses it to avoid a slow first-run download; pass `-ManagedNode` on Windows or `--managed-node` on macOS/Linux to force Spark's verified managed Node runtime.
 Before deploying installer changes, verify the committed script manifest locally with `spark verify --installers`. After deploying `agent.sparkswarm.ai`, run `spark verify --installers --hosted-installers` to catch stale hosted copies, stale hosted checksums, stale `/install/commands.json`, and stale `/install/release-manifest.json`.
 For production pushes, use the full gate in [docs/LAUNCH_RUNBOOK.md](./docs/LAUNCH_RUNBOOK.md) so installer, sandbox, hosted, and paired-repo checks ship together.
@@ -308,6 +330,20 @@ spark verify --provenance
 
 `--registry-pins` checks every blessed module pin against its remote HEAD. `--provenance` requires commit pins and attestation metadata for blessed modules; signed commit enforcement is still report-only until the release signing path is fully active.
 
+To preflight the autonomous mission-execution lane before relying on it, run:
+
+```bash
+spark verify --mission
+```
+
+This is the authoritative gate for "missions actually run", not just "the bot replies". It checks three things and prints a clear pass/fail:
+
+1. The Governor HMAC signing key (`SPARK_GOVERNOR_HMAC_KEY`) is provisioned. This is a diagnostic warning, not a hard failure; `spark setup` generates the key, and a missing key is the usual cause of an unsigned or blocked Governor decision.
+2. The mission provider is reachable. The live default is OpenAI Codex; if the Codex CLI is not on PATH or not signed in, the check fails fast with the `codex login` repair before any mission is attempted.
+3. A real round-trip mission is started against the local `spawner-ui` and runs to completion, emitting a unique marker on the Mission Control board. This catches the silent-expiry symptom where a mission is accepted but never completes.
+
+The exit code is `0` only when a real mission completed end to end. Run it after `spark setup` from the runtime env (mission keys are keychain-backed), with `spawner-ui` started (`spark start spawner-ui`) and the mission provider signed in. Add `--json` for the full machine-readable payload.
+
 To inspect only LLM choices and role readiness:
 
 ```bash
@@ -355,13 +391,14 @@ spark guide
 spark status
 spark verify
 spark verify --deep
+spark verify --mission
 spark fix telegram
 spark providers status
 spark autostart on --now
 spark fix autostart
 ```
 
-That installs the operating-system login hook and starts the local Spark stack immediately. After that, rebooting or logging back into the computer should bring the Telegram agent back without opening a terminal. Manual fallback:
+That installs the operating-system login hook and starts the local Spark stack immediately. `spark verify --mission` is optional but recommended before relying on autonomous builds: it runs a real round-trip mission and tells you whether missions complete or silently expire on this install. It needs `spawner-ui` running and the mission provider signed in. After that, rebooting or logging back into the computer should bring the Telegram agent back without opening a terminal. Manual fallback:
 
 ```bash
 spark start telegram-starter
@@ -409,7 +446,7 @@ Use `spark <cmd> --help` for full flags.
 | `spark doctor [--json]` | Diagnostic variant of status |
 | `spark doctor llm "<problem>"` | Ask the configured LLM for a redacted local repair plan |
 | `spark support bundle` | Create a local redacted support bundle |
-| `spark verify [--onboarding\|--deep\|--installers\|--sandboxes]` | Verify launch wiring, onboarding, runtime checks, installer integrity, or optional sandbox readiness |
+| `spark verify [--onboarding\|--deep\|--mission\|--installers\|--sandboxes]` | Verify launch wiring, onboarding, runtime checks, the autonomous mission lane (real round-trip mission), installer integrity, or optional sandbox readiness |
 | `spark fix <target>` | Repair checklist for `telegram`, `secrets`, `spawner`, `providers`, `memory`, `live`, `update`, or `autostart` |
 | `spark providers list\|status\|test\|recommend` | Inspect, test, and choose LLM provider wiring |
 | `spark browser-use status\|probe\|open\|screenshot\|task` | Inspect Browser Use, prove readiness, open URLs, capture screenshots, and run multi-step Browser Use Agent tasks |
@@ -437,6 +474,10 @@ Use `spark <cmd> --help` for full flags.
 | `spark logs <module>` | Tail `~/.spark/logs/<module>/process.log` |
 | `spark secrets list|set|get|delete` | Keychain-backed secret store |
 | `spark config get|set|unset|list` | User config at `~/.spark/config/config.json` |
+
+`spark doctor llm` rejects provider URLs containing credentials, query strings, fragments, unsafe schemes, or private/metadata targets. For direct provider calls it validates every DNS answer, pins the request to the validated address while preserving TLS hostname verification, and does not follow redirects.
+
+`spark os compile` writes memory-movement and voice-surface read models with redacted `request_ref`/`trace_ref` compile metadata. Those refs prove compiled read-model lineage; they do not authorize memory movement, cleanup, promotion, voice transcription, speech synthesis, Telegram delivery, or execution.
 
 `spark update` checks all selected installed-runtime clones for local edits before it stops services or runs install commands. Use `spark update --stash-local-runtime` for intentional local hotfix testing, `spark update --skip-dirty` to update only clean modules, and `spark update --continue` after manually fixing a preflight stop. If runtime processes were stopped and `SPARK_AUTOSTART=1`, update restarts Spark Live and prints a compact post-update health summary; use `--no-live-restart` to keep the stack manual.
 
@@ -554,7 +595,7 @@ spark sandbox modal smoke --json
 - [docs/SPARK_NORMIE_ONBOARDING_AND_GATEWAY_TEST.md](./docs/SPARK_NORMIE_ONBOARDING_AND_GATEWAY_TEST.md) - step-by-step install and real-time Telegram gateway test
 - [docs/LAUNCH_RUNBOOK.md](./docs/LAUNCH_RUNBOOK.md) - release-day verification
 - [docs/LAUNCH_SECURITY_AUDIT_2026-04-24.md](./docs/LAUNCH_SECURITY_AUDIT_2026-04-24.md) - launch security audit
-- [SECURITY.md](./SECURITY.md) - secret and launch security notes
+- [SECURITY.md](./SECURITY.md) - privacy, sandbox/access model, telemetry disclosure, secret storage, and launch security notes
 
 ## License
 

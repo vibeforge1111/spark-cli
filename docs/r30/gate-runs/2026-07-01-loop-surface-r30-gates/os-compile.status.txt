@@ -1,0 +1,4 @@
+command=spark os compile --json 
+exit_code=0
+started_at=2026-07-01T18:48:32Z
+finished_at=2026-07-01T18:48:38Z

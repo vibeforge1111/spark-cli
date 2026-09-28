@@ -9,16 +9,31 @@ CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 DEFAULT_MAX_BYTES = 32_768
 DEFAULT_MAX_LINES = 200
 
+FULL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?<![A-Za-z0-9_])(?:bot)?\d{6,}:[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"),
+)
+
 SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*=\s*([^\s]+)"),
-    re.compile(r'(?i)"(?:apiKey|token|secret|password|passwd|accessToken|refreshToken)"\s*:\s*"([^"]+)"'),
+    re.compile(
+        r'(?i)"(?:apiKey|api[_-]?key|token|secret|password|passwd|accessToken|access[_-]?token|'
+        r'refreshToken|refresh[_-]?token|clientSecret|client[_-]?secret)"\s*:\s*"([^"]+)"'
+    ),
+    re.compile(
+        r"(?i)'(?:apiKey|api[_-]?key|token|secret|password|passwd|accessToken|access[_-]?token|"
+        r"refreshToken|refresh[_-]?token|clientSecret|client[_-]?secret)'\s*:\s*'([^']+)'"
+    ),
+    re.compile(
+        r"(?i)(?<![A-Z0-9_\"'])\b(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|"
+        r"SECRET(?:[_-][A-Z0-9]+)*|TOKEN|PASSWORD|PASSWD)\b\s*[:=]\s*([^\s,;]+)"
+    ),
     re.compile(r"(?i)--(?:api[-_]?key|token|secret|password|passwd)\s+([^\s]+)"),
     re.compile(r"(?i)\b(?:X-Api-Key|X-Auth-Token|Cookie|Set-Cookie)\s*[:=]\s*([^\r\n;]+)"),
     re.compile(r"(?i)Authorization\s*[:=]\s*Basic\s+([A-Za-z0-9._\-+=/]+)"),
-    re.compile(r"(?i)Authorization\s*[:=]\s*Bearer\s+([A-Za-z0-9._\-+=]+)"),
+    re.compile(r"(?i)Authorization\s*[:=]\s*Bearer\s+([A-Za-z0-9._~+/\-]+=*)"),
+    re.compile(r"(?i)Authorization\s*[:=]\s*(?:Token|ApiKey|Api-Key|OAuth)\s+([^\r\n,;]+)"),
     re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:([^@\s/]+)@"),
     re.compile(r"(?i)([?&](?:access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|sig|signature)=)([^&#\s]+)"),
-    re.compile(r"(?i)\bBearer\s+([A-Za-z0-9._\-+=]{18,})\b"),
+    re.compile(r"(?i)\bBearer\s+([A-Za-z0-9._~+/\-]{18,}=*)"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\b(eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b"),
     re.compile(r"\b(sk-[A-Za-z0-9_-]{8,})\b"),
@@ -32,6 +47,11 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(xox[baprs]-[A-Za-z0-9-]{20,})\b"),
     re.compile(r"\bbot(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
     re.compile(r"\b(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
+)
+
+LOCAL_HOME_PREFIX_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(?<![\w/\\])(?:[A-Z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\s'\"<>:]+"),
+    re.compile(r"(?i)(?<![\w/\\])/(?:Users|home)/[^/\s'\"<>:]+"),
 )
 
 
@@ -69,6 +89,8 @@ def _mask_secret(value: str) -> str:
 
 def redact_sandbox_text(text: str) -> str:
     redacted = text
+    for pattern in FULL_SECRET_PATTERNS:
+        redacted = pattern.sub("[REDACTED]", redacted)
     for pattern in SECRET_PATTERNS:
         def replace(match: re.Match[str]) -> str:
             if match.lastindex:
@@ -77,6 +99,8 @@ def redact_sandbox_text(text: str) -> str:
             return _mask_secret(match.group(0))
 
         redacted = pattern.sub(replace, redacted)
+    for pattern in LOCAL_HOME_PREFIX_PATTERNS:
+        redacted = pattern.sub("[LOCAL_HOME]", redacted)
     return redacted
 
 

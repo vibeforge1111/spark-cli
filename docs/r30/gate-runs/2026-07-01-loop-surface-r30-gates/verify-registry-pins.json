@@ -1,0 +1,117 @@
+{
+  "ok": true,
+  "summary": "Spark registry pin drift verification",
+  "unverified": 0,
+  "checks": [
+    {
+      "name": "domain-chip-memory",
+      "source": "https://github.com/vibeforge1111/domain-chip-memory",
+      "pinned_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "remote_ref": "refs/heads/release/r30-memory-authority-20260701",
+      "remote_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/release/r30-memory-authority-20260701"
+    },
+    {
+      "name": "domain-chip-spark-qa-evidence-lane",
+      "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+      "pinned_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "remote_ref": "refs/heads/release/r30-evidence-lane-20260701",
+      "remote_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/release/r30-evidence-lane-20260701"
+    },
+    {
+      "name": "spark-character",
+      "source": "https://github.com/vibeforge1111/spark-character",
+      "pinned_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+      "remote_ref": "refs/tags/spark-ship-2026-06-22",
+      "remote_head": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/tags/spark-ship-2026-06-22"
+    },
+    {
+      "name": "spark-harness-core",
+      "source": "https://github.com/vibeforge1111/spark-harness-core",
+      "pinned_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+      "remote_ref": "refs/tags/v1.0.0-rc.2",
+      "remote_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/tags/v1.0.0-rc.2"
+    },
+    {
+      "name": "spark-intelligence-builder",
+      "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+      "pinned_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+      "remote_ref": "refs/heads/release/r30-builder-loop-proof-20260701",
+      "remote_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/release/r30-builder-loop-proof-20260701"
+    },
+    {
+      "name": "spark-researcher",
+      "source": "https://github.com/vibeforge1111/spark-researcher",
+      "pinned_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+      "remote_ref": "refs/tags/spark-ship-2026-06-22",
+      "remote_head": "906592e2bb025ef485c6320339f714433714c9b6",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/tags/spark-ship-2026-06-22"
+    },
+    {
+      "name": "spark-skill-graphs",
+      "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+      "pinned_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+      "remote_ref": "refs/heads/reconcile/20260610-metadata-authority",
+      "remote_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/reconcile/20260610-metadata-authority"
+    },
+    {
+      "name": "spark-telegram-bot",
+      "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+      "pinned_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+      "remote_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701",
+      "remote_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/release/r30-telegram-loop-engineering-20260701"
+    },
+    {
+      "name": "spark-voice-comms",
+      "source": "https://github.com/vibeforge1111/spark-voice-comms",
+      "pinned_commit": "c502ec096cefb48839e3279d3392343231884415",
+      "remote_ref": "refs/heads/release/r30-voice-trace-governor-20260701",
+      "remote_head": "c502ec096cefb48839e3279d3392343231884415",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/release/r30-voice-trace-governor-20260701"
+    },
+    {
+      "name": "spawner-ui",
+      "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+      "pinned_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "remote_ref": "refs/heads/release/r30-spawner-source-squash-20260701",
+      "remote_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "ok": true,
+      "verified": true,
+      "verification_status": "verified",
+      "detail": "registry pin matches remote refs/heads/release/r30-spawner-source-squash-20260701"
+    }
+  ]
+}

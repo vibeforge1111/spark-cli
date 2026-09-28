@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-06-23.** Historical snapshot, superseded by the r28 public installer cut. Some statements here are stale - notably the "Not yet implemented: web installer at sparkswarm.ai/install" line is no longer true (the hosted installer is live at agent.sparkswarm.ai on the r28 release). Kept for provenance only; do not treat as current.
+
 # Spark CLI — Status Audit
 
 **Last updated:** 2026-05-08 (Railway/VPS/sandbox hardening pass)
